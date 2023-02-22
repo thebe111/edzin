@@ -1,0 +1,10 @@
+# Edzin
+
+An vim like editor for educational purposes (base on a tutorial)
+
+### How To Run
+
+```
+$ make -B build
+$ ./build/edzin
+```
