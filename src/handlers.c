@@ -20,11 +20,12 @@ handle_arrow_keys(char key) {
     }
 #else
     return ESCAPE;
-#endif // UO_ARROW_KEYS
+#endif  // UO_ARROW_KEYS
 }
 
-void handle_mv_cursor_down(edzin_config_t* E) {
-    if (E->cursor.y < (E->numrows + E->screen_props.rows - 1)) {
+void
+handle_mv_cursor_down(edzin_config_t* E) {
+    if (E->cursor.y < (E->max_lines + E->screen_props.lines - 1)) {
         E->cursor.y++;
     }
 }
@@ -42,11 +43,11 @@ handle_mv_cursor_left(edzin_config_t* E) {
     if (E->cursor.x > 0) {
         E->cursor.x--;
     }
-#endif // UO_CONTINUE_SCROLL_ON_LEFT
+#endif  // UO_CONTINUE_SCROLL_ON_LEFT
 }
 
 void
-handle_mv_cursor_right(edzin_config_t* E, edzin_row_t* row) {
+handle_mv_cursor_right(edzin_config_t* E, edzin_line_t* line) {
 #ifdef UO_CONTINUE_SCROLL_ON_RIGHT
     if (row && E->cursor.x < row->size) {
         E->cursor.x++;
@@ -55,13 +56,14 @@ handle_mv_cursor_right(edzin_config_t* E, edzin_row_t* row) {
         E->cursor.x = 0;
     }
 #else
-    if (row && E->cursor.x < row->size) {
+    if (line && E->cursor.x < line->size) {
         E->cursor.x++;
     }
-#endif // UO_CONTINUE_SCROLL_ON_RIGHT
+#endif  // UO_CONTINUE_SCROLL_ON_RIGHT
 }
 
-void handle_mv_cursos_up(edzin_config_t* E) {
+void
+handle_mv_cursos_up(edzin_config_t* E) {
     if (E->cursor.y > 0) {
         E->cursor.y--;
     }

@@ -5,6 +5,7 @@
 #include <termios.h>
 
 #define EDZIN_VERSION "0.0.1"
+#define TAB_STOP_SIZE 4
 
 #define CTRL_KEY(key) ((key) &0x1f)
 #define ESCAPE '\x1b'
@@ -28,17 +29,20 @@ enum edzin_key {
 
 typedef struct {
     int size;
+    int rsize;  // render size
     char* content;
-} edzin_row_t;
+    char* render;
+} edzin_line_t;
 
 typedef struct {
-    int rows;
+    int lines;
     int cols;
 } edzin_screen_props_t;
 
 typedef struct {
     int x;
     int y;
+    int rx;  // render x-axis
 } edzin_cursor_t;
 
 typedef struct {
@@ -50,8 +54,8 @@ typedef struct {
     struct termios TERM_MODE;
     edzin_screen_props_t screen_props;
     edzin_cursor_t cursor;
-    int numrows;
-    edzin_row_t* row;
+    int max_lines;
+    edzin_line_t* line;
     edzin_scroll_t scroll;
 } edzin_config_t;
 
@@ -70,6 +74,7 @@ void buf_append(edzin_append_buf_t* buf, const char* s, int len);
 void buf_free(edzin_append_buf_t* buf);
 
 int edzin_read_key();
+int edzin_transform_x_to_rx(edzin_line_t* line, int content_x);
 void edzin_append_row(char* s, size_t len);
 void edzin_die(const char* msg);
 void edzin_draw_rows(edzin_append_buf_t* buf);
@@ -79,5 +84,6 @@ void edzin_open(char* filename);
 void edzin_process_keypress();
 void edzin_refresh_screen();
 void edzin_scroll();
+void edzin_update_row(edzin_line_t* line);
 
 #endif  // EDZIN_MAIN_H

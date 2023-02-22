@@ -39,6 +39,21 @@ disable_raw_mode() {
     }
 }
 
+int
+edzin_transform_x_to_rx(edzin_line_t* line, int content_x) {
+    int render_x = 0;
+
+    for (int i = 0; i < content_x; i++) {
+        if (line->content[i] == 0x09) {
+            render_x += (TAB_STOP_SIZE - 1) - (render_x % TAB_STOP_SIZE);
+        }
+
+        render_x++;
+    }
+
+    return render_x;
+}
+
 void
 enable_raw_mode() {
     if (tcgetattr(STDIN_FILENO, &E.TERM_MODE) == FAILURE) {
@@ -213,15 +228,18 @@ edzin_read_key() {
 
 void
 edzin_append_row(char* s, size_t len) {
-    E.row = realloc(E.row, sizeof(edzin_row_t) * (E.numrows + 1));
+    E.line = realloc(E.line, sizeof(edzin_line_t) * (E.max_lines + 1));
 
-    int at = E.numrows;
+    int at = E.max_lines;
 
-    E.row[at].size = len;
-    E.row[at].content = malloc(len + 1);
-    memcpy(E.row[at].content, s, len);
-    E.row[at].content[len] = '\0';
-    E.numrows++;
+    E.line[at].size = len;
+    E.line[at].content = malloc(len + 1);
+    memcpy(E.line[at].content, s, len);
+    E.line[at].content[len] = '\0';
+    E.line[at].rsize = 0;
+    E.line[at].render = NULL;
+    edzin_update_row(&E.line[at]);
+    E.max_lines++;
 }
 
 void
@@ -234,13 +252,13 @@ edzin_die(const char* msg) {
 
 void
 edzin_draw_rows(edzin_append_buf_t* buf) {
-    for (int i = 0; i < E.screen_props.rows; i++) {
+    for (int i = 0; i < E.screen_props.lines; i++) {
         int file_row = i + E.scroll.y_offset;
 
-        if (file_row >= E.numrows) {
-            bool display_greatings = E.numrows == 0;
+        if (file_row >= E.max_lines) {
+            bool display_greatings = E.max_lines == 0;
 
-            if (display_greatings && i == E.screen_props.rows / 3) {
+            if (display_greatings && i == E.screen_props.lines / 3) {
                 char greatings_msg[80];
                 int greatings_len = snprintf(greatings_msg, sizeof(greatings_msg), "Edzin :: v%s\r\n", EDZIN_VERSION);
 
@@ -264,7 +282,7 @@ edzin_draw_rows(edzin_append_buf_t* buf) {
                 buf_append(buf, "~", 1);
             }
         } else {
-            int len = E.row[file_row].size - E.scroll.x_offset;
+            int len = E.line[file_row].rsize - E.scroll.x_offset;
 
             if (len < 0) {
                 len = 0;
@@ -274,12 +292,12 @@ edzin_draw_rows(edzin_append_buf_t* buf) {
                 len = E.screen_props.cols;
             }
 
-            buf_append(buf, &E.row[file_row].content[E.scroll.x_offset], len);
+            buf_append(buf, &E.line[file_row].render[E.scroll.x_offset], len);
         }
 
         buf_append(buf, "\x1b[K", 3);
 
-        if (i < E.screen_props.rows - 1) {
+        if (i < E.screen_props.lines - 1) {
             buf_append(buf, "\r\n", 2);
         }
     }
@@ -289,19 +307,20 @@ void
 edzin_init() {
     E.cursor.x = 0;
     E.cursor.y = 0;
+    E.cursor.rx = 0;
     E.scroll.x_offset = 0;
     E.scroll.y_offset = 0;
-    E.numrows = 0;
-    E.row = NULL;
+    E.max_lines = 0;
+    E.line = NULL;
 
-    if (get_winsize(&E.screen_props.rows, &E.screen_props.cols) == FAILURE) {
+    if (get_winsize(&E.screen_props.lines, &E.screen_props.cols) == FAILURE) {
         edzin_die("get_winsize");
     }
 }
 
 void
 edzin_move_cursor(int key) {
-    edzin_row_t* row = (E.cursor.y >= E.numrows) ? NULL : &E.row[E.cursor.y];
+    edzin_line_t* line = (E.cursor.y >= E.max_lines) ? NULL : &E.line[E.cursor.y];
 
     switch (key) {
         case 'h':
@@ -318,12 +337,12 @@ edzin_move_cursor(int key) {
             break;
         case 'l':
         case ARROW_RIGHT:
-            handle_mv_cursor_right(&E, row);
+            handle_mv_cursor_right(&E, line);
             break;
     }
 
-    row = (E.cursor.y >= E.numrows) ? NULL : &E.row[E.cursor.y];
-    int rowlen = row ? row->size : 0;
+    line = (E.cursor.y >= E.max_lines) ? NULL : &E.line[E.cursor.y];
+    int rowlen = line ? line->size : 0;
 
     if (E.cursor.x > rowlen) {
         E.cursor.x = rowlen;
@@ -365,7 +384,7 @@ edzin_process_keypress() {
             exit(EXIT_SUCCESS);
             break;
         case 'G':
-            E.cursor.y = E.numrows;
+            E.cursor.y = E.max_lines;
             break;
         case HOME_KEY:
             E.cursor.x = 0;
@@ -375,7 +394,7 @@ edzin_process_keypress() {
             break;
         case PAGE_UP:
         case PAGE_DOWN: {
-            int times = E.screen_props.rows;
+            int times = E.screen_props.lines;
 
             while (times--) {
                 edzin_move_cursor(c == PAGE_UP ? ARROW_UP : ARROW_DOWN);
@@ -410,7 +429,7 @@ edzin_refresh_screen() {
              sizeof(init_buf),
              "\x1b[%d;%dH",
              (E.cursor.y - E.scroll.y_offset) + 1,
-             (E.cursor.x - E.scroll.x_offset) + 1);
+             (E.cursor.rx - E.scroll.x_offset) + 1);
     buf_append(&buf, init_buf, strlen(init_buf));
     buf_append(&buf, "\x1b[?25h", 6);  // show cursor after rendering
     write(STDOUT_FILENO, buf.buf, buf.len);
@@ -419,19 +438,56 @@ edzin_refresh_screen() {
 
 void
 edzin_scroll() {
+    E.cursor.rx = 0;
+
+    if (E.cursor.y < E.max_lines) {
+        E.cursor.rx = edzin_transform_x_to_rx(&E.line[E.cursor.y], E.cursor.x);
+    }
+
     if (E.cursor.y < E.scroll.y_offset) {
         E.scroll.y_offset = E.cursor.y;
     }
 
-    if (E.cursor.y >= E.scroll.y_offset + E.screen_props.rows) {
-        E.scroll.y_offset = E.cursor.y - E.screen_props.rows;
+    if (E.cursor.y >= E.scroll.y_offset + E.screen_props.lines) {
+        E.scroll.y_offset = E.cursor.y - E.screen_props.lines;
     }
 
-    if (E.cursor.x < E.scroll.x_offset) {
-        E.scroll.x_offset = E.cursor.x;
+    if (E.cursor.rx < E.scroll.x_offset) {
+        E.scroll.x_offset = E.cursor.rx;
     }
 
-    if (E.cursor.x >= E.scroll.x_offset + E.screen_props.cols) {
-        E.scroll.x_offset = E.cursor.x - E.screen_props.cols + 1;
+    if (E.cursor.rx >= E.scroll.x_offset + E.screen_props.cols) {
+        E.scroll.x_offset = E.cursor.rx - E.screen_props.cols + 1;
     }
+}
+
+void
+edzin_update_row(edzin_line_t* line) {
+    int ntabs = 0;
+
+    for (int i = 0; i < line->size; i++) {
+        if (line->content[i] == 0x09) {
+            ntabs++;
+        }
+    }
+
+    free(line->render);
+    line->render = malloc(line->size + (ntabs * (TAB_STOP_SIZE - 1)) + 1);
+
+    int idx = 0;
+
+    for (int i = 0; i < line->size; i++) {
+        if (line->content[i] == 0x09) {
+            line->render[idx++] = 0x20;
+
+            while (idx % TAB_STOP_SIZE != 0) {
+                line->render[idx++] = 0x20;
+            }
+        } else {
+            line->render[idx++] = line->content[i];
+        }
+    }
+
+    line->render[idx] = 0x00;
+    line->rsize = idx;
 }
