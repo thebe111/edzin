@@ -1,6 +1,6 @@
 # Edzin
 
-An vim like editor for educational purposes (base on a tutorial)
+An vim like editor for educational purposes (based on a tutorial)
 
 ### How To Run
 
