@@ -1,21 +1,30 @@
+#define _DEFAULT_SOURCE
+#define _BSD_SOURCE
+#define _GNU_SOURCE
+
 #include "edzin/main.h"
-#include "edzin/user_options.h"
+#include "edzin/handlers.h"
 #include <ctype.h>
 #include <errno.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
 
-edzin_config edzin_defconfig;
+edzin_config_t E;
 
 int
-main(__attribute((unused)) int argc, __attribute__((unused)) char** argv) {
+main(int argc, char** argv) {
     enable_raw_mode();
     edzin_init();
 
-    while (1) {
+    if (argc >= 2) {
+        edzin_open(/*filename=*/argv[1]);
+    }
+
+    while (true) {
         edzin_refresh_screen();
         edzin_process_keypress();
     }
@@ -25,19 +34,19 @@ main(__attribute((unused)) int argc, __attribute__((unused)) char** argv) {
 
 void
 disable_raw_mode() {
-    if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &edzin_defconfig.TERM_MODE) == ERROR) {
+    if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &E.TERM_MODE) == FAILURE) {
         edzin_die("tcsetattr");
     }
 }
 
 void
 enable_raw_mode() {
-    if (tcgetattr(STDIN_FILENO, &edzin_defconfig.TERM_MODE) == ERROR) {
+    if (tcgetattr(STDIN_FILENO, &E.TERM_MODE) == FAILURE) {
         edzin_die("tcgetattr");
     }
 
     atexit(disable_raw_mode);
-    struct termios term_raw_mode = edzin_defconfig.TERM_MODE;
+    struct termios term_raw_mode = E.TERM_MODE;
     term_raw_mode.c_cflag |= (/*set chars size (CS) to 8 bits per byte=*/CS8);
     term_raw_mode.c_oflag = ~(/*turn off output processing (\n|\r\n)=*/OPOST);
     term_raw_mode.c_iflag = ~(
@@ -54,7 +63,7 @@ enable_raw_mode() {
     term_raw_mode.c_cc[VMIN] = 0;
     term_raw_mode.c_cc[VTIME] = 1;
 
-    if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &term_raw_mode) == ERROR) {
+    if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &term_raw_mode) == FAILURE) {
         edzin_die("tcsetattr");
     }
 }
@@ -65,7 +74,7 @@ get_cursor_pos(int* rows, int* cols) {
     unsigned int i = 0;
 
     if (write(STDOUT_FILENO, "\x1b[6n", 4) != 4) {
-        return ERROR;
+        return FAILURE;
     }
 
     while (i < sizeof(buf) - 1) {
@@ -83,11 +92,11 @@ get_cursor_pos(int* rows, int* cols) {
     buf[i] = '\0';
 
     if (buf[0] != ESCAPE || buf[1] != '[') {
-        return ERROR;
+        return FAILURE;
     }
 
     if (sscanf(&buf[2], "%d;%d", rows, cols) != 2) {
-        return ERROR;
+        return FAILURE;
     }
 
     return EXIT_SUCCESS;
@@ -97,7 +106,7 @@ int
 get_winsize(int* rows, int* cols) {
     struct winsize ws;
 
-    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == ERROR || ws.ws_col == 0) {
+    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == FAILURE || ws.ws_col == 0) {
         // hard way to get all terminals screen size, moving the cursor to the bottom-right corner
         if (write(STDOUT_FILENO, "\x1b[999C\x1b[999B", 12) != 12) {
             return get_cursor_pos(rows, cols);
@@ -105,7 +114,7 @@ get_winsize(int* rows, int* cols) {
 
         edzin_read_key();
 
-        return ERROR;
+        return FAILURE;
     }
 
     *cols = ws.ws_col;
@@ -115,7 +124,7 @@ get_winsize(int* rows, int* cols) {
 }
 
 void
-buf_append(edzin_append_buf* buf, const char* s, int len) {
+buf_append(edzin_append_buf_t* buf, const char* s, int len) {
     char* new = realloc(buf->buf, buf->len + len);
 
     if (new == NULL) {
@@ -128,7 +137,7 @@ buf_append(edzin_append_buf* buf, const char* s, int len) {
 }
 
 void
-buf_free(edzin_append_buf* buf) {
+buf_free(edzin_append_buf_t* buf) {
     free(buf->buf);
 }
 
@@ -138,7 +147,7 @@ edzin_read_key() {
     int nread;
 
     while ((nread = read(STDIN_FILENO, &c, 1)) != 1) {
-        if (nread == ERROR && errno != EAGAIN) {
+        if (nread == FAILURE && errno != EAGAIN) {
             edzin_die("read");
         }
     }
@@ -151,12 +160,48 @@ edzin_read_key() {
         }
 
         if (seq[0] == '[') {
-            switch (seq[1]) {
-                case 'A':
-                case 'B':
-                case 'C':
-                case 'D':
-                    return uo_arrow_keys(seq[1]);
+            if (seq[1] >= '0' && seq[1] <= '9') {
+                if (read(STDIN_FILENO, &seq[2], 1) != 1) {
+                    return ESCAPE;
+                }
+
+                if (seq[2] == '~') {
+                    switch (seq[1]) {
+                        case '1':
+                            return HOME_KEY;
+                        case '3':
+                            return DELETE_KEY;
+                        case '4':
+                            return END_KEY;
+                        case '5':
+                            return PAGE_UP;
+                        case '6':
+                            return PAGE_DOWN;
+                        case '7':
+                            return HOME_KEY;
+                        case '8':
+                            return END_KEY;
+                    }
+                }
+            } else if (seq[0] == 'O') {
+                switch (seq[1]) {
+                    case 'H':
+                        return HOME_KEY;
+                    case 'F':
+                        return END_KEY;
+                }
+            } else {
+                switch (seq[1]) {
+                    case 'A':
+                    case 'B':
+                    case 'C':
+                    case 'D':
+                        return handle_arrow_keys(seq[1]);
+                    case 'H':
+                        return HOME_KEY;
+                    case 'F':
+                        return END_KEY;
+                }
             }
         }
 
@@ -164,6 +209,19 @@ edzin_read_key() {
     }
 
     return c;
+}
+
+void
+edzin_append_row(char* s, size_t len) {
+    E.row = realloc(E.row, sizeof(edzin_row_t) * (E.numrows + 1));
+
+    int at = E.numrows;
+
+    E.row[at].size = len;
+    E.row[at].content = malloc(len + 1);
+    memcpy(E.row[at].content, s, len);
+    E.row[at].content[len] = '\0';
+    E.numrows++;
 }
 
 void
@@ -175,35 +233,53 @@ edzin_die(const char* msg) {
 }
 
 void
-edzin_draw_rows(edzin_append_buf* buf) {
-    for (int i = 0; i < edzin_defconfig.screen_props.rows; i++) {
-        if (i == edzin_defconfig.screen_props.rows / 3) {
-            char greatings_msg[80];
-            int greatings_len = snprintf(greatings_msg, sizeof(greatings_msg), "Edzin :: v%s\r\n", EDZIN_VERSION);
+edzin_draw_rows(edzin_append_buf_t* buf) {
+    for (int i = 0; i < E.screen_props.rows; i++) {
+        int file_row = i + E.scroll.y_offset;
 
-            if (greatings_len > edzin_defconfig.screen_props.cols) {
-                greatings_len = edzin_defconfig.screen_props.cols;
-            }
+        if (file_row >= E.numrows) {
+            bool display_greatings = E.numrows == 0;
 
-            int padding = (edzin_defconfig.screen_props.cols - greatings_len) / 2;
+            if (display_greatings && i == E.screen_props.rows / 3) {
+                char greatings_msg[80];
+                int greatings_len = snprintf(greatings_msg, sizeof(greatings_msg), "Edzin :: v%s\r\n", EDZIN_VERSION);
 
-            if (padding) {
+                if (greatings_len > E.screen_props.cols) {
+                    greatings_len = E.screen_props.cols;
+                }
+
+                int padding = (E.screen_props.cols - greatings_len) / 2;
+
+                if (padding) {
+                    buf_append(buf, "~", 1);
+                    padding--;
+                }
+
+                while (padding--) {
+                    buf_append(buf, " ", 1);
+                }
+
+                buf_append(buf, greatings_msg, greatings_len);
+            } else {
                 buf_append(buf, "~", 1);
-                padding--;
             }
-
-            while (padding--) {
-                buf_append(buf, " ", 1);
-            }
-
-            buf_append(buf, greatings_msg, greatings_len);
         } else {
-            buf_append(buf, "~", 1);
+            int len = E.row[file_row].size - E.scroll.x_offset;
+
+            if (len < 0) {
+                len = 0;
+            }
+
+            if (len > E.screen_props.cols) {
+                len = E.screen_props.cols;
+            }
+
+            buf_append(buf, &E.row[file_row].content[E.scroll.x_offset], len);
         }
 
         buf_append(buf, "\x1b[K", 3);
 
-        if (i < edzin_defconfig.screen_props.rows - 1) {
+        if (i < E.screen_props.rows - 1) {
             buf_append(buf, "\r\n", 2);
         }
     }
@@ -211,46 +287,71 @@ edzin_draw_rows(edzin_append_buf* buf) {
 
 void
 edzin_init() {
-    edzin_defconfig.cursor.x = 0;
-    edzin_defconfig.cursor.y = 0;
+    E.cursor.x = 0;
+    E.cursor.y = 0;
+    E.scroll.x_offset = 0;
+    E.scroll.y_offset = 0;
+    E.numrows = 0;
+    E.row = NULL;
 
-    if (get_winsize(&edzin_defconfig.screen_props.rows, &edzin_defconfig.screen_props.cols) == ERROR) {
+    if (get_winsize(&E.screen_props.rows, &E.screen_props.cols) == FAILURE) {
         edzin_die("get_winsize");
     }
 }
 
 void
 edzin_move_cursor(int key) {
+    edzin_row_t* row = (E.cursor.y >= E.numrows) ? NULL : &E.row[E.cursor.y];
+
     switch (key) {
         case 'h':
         case ARROW_LEFT:
-            if (edzin_defconfig.cursor.x > 0) {
-                edzin_defconfig.cursor.x--;
-            }
-
+            handle_mv_cursor_left(&E);
             break;
         case 'j':
         case ARROW_DOWN:
-            if (edzin_defconfig.cursor.y < edzin_defconfig.screen_props.rows - 1) {
-                edzin_defconfig.cursor.y++;
-            }
-
+            handle_mv_cursor_down(&E);
             break;
         case 'k':
         case ARROW_UP:
-            if (edzin_defconfig.cursor.y > 0) {
-                edzin_defconfig.cursor.y--;
-            }
-
+            handle_mv_cursos_up(&E);
             break;
         case 'l':
         case ARROW_RIGHT:
-            if (edzin_defconfig.cursor.x < edzin_defconfig.screen_props.cols - 1) {
-                edzin_defconfig.cursor.x++;
-            }
-
+            handle_mv_cursor_right(&E, row);
             break;
     }
+
+    row = (E.cursor.y >= E.numrows) ? NULL : &E.row[E.cursor.y];
+    int rowlen = row ? row->size : 0;
+
+    if (E.cursor.x > rowlen) {
+        E.cursor.x = rowlen;
+    }
+}
+
+void
+edzin_open(char* filename) {
+    FILE* f = fopen(filename, "r");
+
+    if (!f) {
+        edzin_die("fopen");
+    }
+
+    ssize_t linelen;
+    char* line = NULL;
+    size_t line_capacity = 0;
+
+    while ((linelen = getline(&line, &line_capacity, f)) != FAILURE) {
+        while (linelen > 0 && (line[linelen - 1] == '\n' || line[linelen - 1] == '\r')) {
+            linelen--;
+        }
+
+        edzin_append_row(line, linelen);
+    }
+
+    free(line);
+    fclose(f);
 }
 
 void
@@ -263,6 +364,23 @@ edzin_process_keypress() {
             write(STDOUT_FILENO, "\x1b[H", 3);
             exit(EXIT_SUCCESS);
             break;
+        case 'G':
+            E.cursor.y = E.numrows;
+            break;
+        case HOME_KEY:
+            E.cursor.x = 0;
+            break;
+        case END_KEY:
+            E.cursor.x = E.screen_props.cols - 1;
+            break;
+        case PAGE_UP:
+        case PAGE_DOWN: {
+            int times = E.screen_props.rows;
+
+            while (times--) {
+                edzin_move_cursor(c == PAGE_UP ? ARROW_UP : ARROW_DOWN);
+            }
+        } break;
         case 'h':
         case ARROW_LEFT:
         case 'j':
@@ -278,7 +396,9 @@ edzin_process_keypress() {
 
 void
 edzin_refresh_screen() {
-    edzin_append_buf buf = APPEND_BUF_INIT;
+    edzin_scroll();
+
+    edzin_append_buf_t buf = APPEND_BUF_INIT;
 
     buf_append(&buf, "\x1b[?25l", 6);  // hide cursor before rendering
     buf_append(&buf, "\x1b[H", 3);  // vt100 escape sequence to go to line 1, col 1
@@ -286,9 +406,32 @@ edzin_refresh_screen() {
 
     char init_buf[32];
 
-    snprintf(init_buf, sizeof(init_buf), "\x1b[%d;%dH", edzin_defconfig.cursor.y + 1, edzin_defconfig.cursor.x + 1);
+    snprintf(init_buf,
+             sizeof(init_buf),
+             "\x1b[%d;%dH",
+             (E.cursor.y - E.scroll.y_offset) + 1,
+             (E.cursor.x - E.scroll.x_offset) + 1);
     buf_append(&buf, init_buf, strlen(init_buf));
     buf_append(&buf, "\x1b[?25h", 6);  // show cursor after rendering
     write(STDOUT_FILENO, buf.buf, buf.len);
     buf_free(&buf);
+}
+
+void
+edzin_scroll() {
+    if (E.cursor.y < E.scroll.y_offset) {
+        E.scroll.y_offset = E.cursor.y;
+    }
+
+    if (E.cursor.y >= E.scroll.y_offset + E.screen_props.rows) {
+        E.scroll.y_offset = E.cursor.y - E.screen_props.rows;
+    }
+
+    if (E.cursor.x < E.scroll.x_offset) {
+        E.scroll.x_offset = E.cursor.x;
+    }
+
+    if (E.cursor.x >= E.scroll.x_offset + E.screen_props.cols) {
+        E.scroll.x_offset = E.cursor.x - E.screen_props.cols + 1;
+    }
 }

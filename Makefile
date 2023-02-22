@@ -1,18 +1,20 @@
 OBJ = $(shell find src -type f -iname '*.h' -or -iname '*.c')
 
 .PHONY:
-build: src/main.c src/user_options.c src/edzin/main.h src/edzin/user_options.h
+build: src/main.c src/handlers.c src/edzin/main.h src/edzin/handlers.h
 	$(CC) \
 		src/main.c \
-		src/user_options.c \
+		src/handlers.c \
 		src/edzin/main.h \
-		src/edzin/user_options.h \
+		src/edzin/handlers.h \
 		-o build/edzin \
 		-Wall \
 		-Wextra \
 		-pedantic \
 		-std=c99 
-		# -DUO_ARROW_KEYS
+		# -DUO_ENABLE_ARROW_KEYS \
+		# -DUO_CONTINUE_SCROLL_ON_LEFT \
+		# -DUO_CONTINUE_SCROLL_ON_RIGHT
 
 .PHONY:
 lint: $(OBJ)
