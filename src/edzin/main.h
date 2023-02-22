@@ -1,6 +1,7 @@
 #ifndef EDZIN_MAIN_H
 #define EDZIN_MAIN_H
 
+#include <stdbool.h>
 #include <stdio.h>
 #include <termios.h>
 
@@ -50,6 +51,14 @@ typedef struct {
     int y_offset;
 } edzin_scroll_t;
 
+enum edzin_file_state { MODIFIED, UNMODIFIED };
+
+typedef struct {
+    bool rendering;
+    enum edzin_file_state state;
+    char* filename;
+} edzin_file_t;
+
 typedef struct {
     struct termios TERM_MODE;
     edzin_screen_props_t screen_props;
@@ -57,6 +66,8 @@ typedef struct {
     int max_lines;
     edzin_line_t* line;
     edzin_scroll_t scroll;
+    int nfiles;
+    edzin_file_t* files;
 } edzin_config_t;
 
 typedef struct {
@@ -64,7 +75,7 @@ typedef struct {
     int len;
 } edzin_append_buf_t;
 
-void disable_raw_mode();
+void clean_up();
 void enable_raw_mode();
 
 int get_cursor_pos();
@@ -79,7 +90,7 @@ void edzin_append_row(char* s, size_t len);
 void edzin_die(const char* msg);
 void edzin_draw_rows(edzin_append_buf_t* buf);
 void edzin_init();
-void edzin_move_cursor(int key);
+void edzin_mv_cursor(int key);
 void edzin_open(char* filename);
 void edzin_process_keypress();
 void edzin_refresh_screen();

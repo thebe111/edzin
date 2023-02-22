@@ -4,6 +4,7 @@
 
 #include "edzin/main.h"
 #include "edzin/handlers.h"
+#include "edzin/ui.h"
 #include <ctype.h>
 #include <errno.h>
 #include <stdbool.h>
@@ -13,6 +14,9 @@
 #include <sys/ioctl.h>
 #include <unistd.h>
 
+/*
+ * main editor config setup
+ */
 edzin_config_t E;
 
 int
@@ -33,10 +37,16 @@ main(int argc, char** argv) {
 }
 
 void
-disable_raw_mode() {
+clean_up() {
     if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &E.TERM_MODE) == FAILURE) {
         edzin_die("tcsetattr");
     }
+
+    for (int i = 0; i < E.nfiles; i++) {
+        free(E.files[i].filename);
+    }
+
+    free(E.files);
 }
 
 int
@@ -60,7 +70,7 @@ enable_raw_mode() {
         edzin_die("tcgetattr");
     }
 
-    atexit(disable_raw_mode);
+    atexit(clean_up);
     struct termios term_raw_mode = E.TERM_MODE;
     term_raw_mode.c_cflag |= (/*set chars size (CS) to 8 bits per byte=*/CS8);
     term_raw_mode.c_oflag = ~(/*turn off output processing (\n|\r\n)=*/OPOST);
@@ -296,10 +306,7 @@ edzin_draw_rows(edzin_append_buf_t* buf) {
         }
 
         buf_append(buf, "\x1b[K", 3);
-
-        if (i < E.screen_props.lines - 1) {
-            buf_append(buf, "\r\n", 2);
-        }
+        buf_append(buf, "\r\n", 2);
     }
 }
 
@@ -312,14 +319,18 @@ edzin_init() {
     E.scroll.y_offset = 0;
     E.max_lines = 0;
     E.line = NULL;
+    E.nfiles = 0;
+    E.files = NULL;
 
     if (get_winsize(&E.screen_props.lines, &E.screen_props.cols) == FAILURE) {
         edzin_die("get_winsize");
     }
+
+    E.screen_props.lines -= 1;
 }
 
 void
-edzin_move_cursor(int key) {
+edzin_mv_cursor(int key) {
     edzin_line_t* line = (E.cursor.y >= E.max_lines) ? NULL : &E.line[E.cursor.y];
 
     switch (key) {
@@ -351,6 +362,16 @@ edzin_move_cursor(int key) {
 
 void
 edzin_open(char* filename) {
+    edzin_file_t file = {
+        .rendering = true,
+        .state = UNMODIFIED,
+        .filename = strdup(filename),
+    };
+
+    E.nfiles = 1;
+    E.files = calloc(1, sizeof(edzin_file_t));
+    *E.files = file;
+
     FILE* f = fopen(filename, "r");
 
     if (!f) {
@@ -390,16 +411,15 @@ edzin_process_keypress() {
             E.cursor.x = 0;
             break;
         case END_KEY:
-            E.cursor.x = E.screen_props.cols - 1;
+            if (E.cursor.y < E.max_lines) {
+                E.cursor.x = E.line[E.cursor.y].size;
+            }
+
             break;
         case PAGE_UP:
-        case PAGE_DOWN: {
-            int times = E.screen_props.lines;
-
-            while (times--) {
-                edzin_move_cursor(c == PAGE_UP ? ARROW_UP : ARROW_DOWN);
-            }
-        } break;
+        case PAGE_DOWN:
+            handle_page_down(&E, c);
+            break;
         case 'h':
         case ARROW_LEFT:
         case 'j':
@@ -408,7 +428,7 @@ edzin_process_keypress() {
         case ARROW_UP:
         case 'l':
         case ARROW_RIGHT:
-            edzin_move_cursor(c);
+            edzin_mv_cursor(c);
             break;
     }
 }
@@ -422,6 +442,7 @@ edzin_refresh_screen() {
     buf_append(&buf, "\x1b[?25l", 6);  // hide cursor before rendering
     buf_append(&buf, "\x1b[H", 3);  // vt100 escape sequence to go to line 1, col 1
     edzin_draw_rows(&buf);
+    edzin_draw_statusbar(&E, &buf);
 
     char init_buf[32];
 

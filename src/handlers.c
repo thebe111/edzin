@@ -1,9 +1,9 @@
 #include "edzin/handlers.h"
 #include "edzin/main.h"
 
+#ifdef UO_ENABLE_ARROW_KEYS
 int
 handle_arrow_keys(char key) {
-#ifdef UO_ENABLE_ARROW_KEYS
     switch (key) {
         case 'A':
             return ARROW_UP;
@@ -18,10 +18,13 @@ handle_arrow_keys(char key) {
             edzin_die("error on processing UO_ARROW_KEYS");
             return ESCAPE;
     }
-#else
-    return ESCAPE;
-#endif  // UO_ARROW_KEYS
 }
+#else
+int
+handle_arrow_keys(__attribute__((unused)) char key) {
+    return ESCAPE;
+}
+#endif  // UO_ARROW_KEYS
 
 void
 handle_mv_cursor_down(edzin_config_t* E) {
@@ -66,5 +69,24 @@ void
 handle_mv_cursos_up(edzin_config_t* E) {
     if (E->cursor.y > 0) {
         E->cursor.y--;
+    }
+}
+
+void
+handle_page_down(edzin_config_t* E, int c) {
+    if (c == PAGE_UP) {
+        E->cursor.y = E->scroll.y_offset;
+    } else if (c == PAGE_DOWN) {
+        E->cursor.y = E->scroll.y_offset + E->screen_props.lines - 1;
+
+        if (E->cursor.y > E->max_lines) {
+            E->cursor.y = E->max_lines + E->screen_props.lines - 1;
+        }
+    }
+
+    int times = E->screen_props.lines;
+
+    while (times--) {
+        edzin_mv_cursor(c == PAGE_UP ? ARROW_UP : ARROW_DOWN);
     }
 }

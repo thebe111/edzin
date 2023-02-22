@@ -1,12 +1,14 @@
 OBJ = $(shell find src -type f -iname '*.h' -or -iname '*.c')
 
 .PHONY:
-build: src/main.c src/handlers.c src/edzin/main.h src/edzin/handlers.h
+build: src/main.c src/handlers.c src/ui.c src/edzin/main.h src/edzin/handlers.h src/edzin/ui.h
 	$(CC) \
 		src/main.c \
 		src/handlers.c \
+		src/ui.c \
 		src/edzin/main.h \
 		src/edzin/handlers.h \
+		src/edzin/ui.h \
 		-o build/edzin \
 		-Wall \
 		-Wextra \
