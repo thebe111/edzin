@@ -483,7 +483,7 @@ edzin_scroll() {
     }
 
     if (E.cursor.y >= E.scroll.y_offset + E.screen_props.lines) {
-        E.scroll.y_offset = E.cursor.y - E.screen_props.lines;
+        E.scroll.y_offset = E.cursor.y - E.screen_props.lines + 1;
     }
 
     if (E.cursor.rx < E.scroll.x_offset) {
