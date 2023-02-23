@@ -19,7 +19,7 @@ $ ./build/edzin
 
 ### Memory Leaks
 
-To prevent memory leaks was used the a tool called [valgrind](https://valgrind.org/docs/manual/quick-start.html)
+To prevent memory leaks was used a tool called [valgrind](https://valgrind.org/docs/manual/quick-start.html)
 
 ```
 $ make -B build && valgrind --leak-check=full --show-leak-kinds=all -s ./build/edzin src/main.c
