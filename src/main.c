@@ -1,6 +1,14 @@
+#ifndef _DEFAULT_SOURCE
 #define _DEFAULT_SOURCE
+#endif
+
+#ifndef _BSD_SOURCE
 #define _BSD_SOURCE
+#endif
+
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 
 #include "edzin/main.h"
 #include "edzin/handlers.h"
@@ -40,6 +48,11 @@ void
 clean_up() {
     if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &E.TERM_MODE) == FAILURE) {
         edzin_die("tcsetattr");
+    }
+
+    for (int i = 0; i < E.max_lines; i++) {
+        free(E.line[i].content);
+        free(E.line[i].render);
     }
 
     for (int i = 0; i < E.nfiles; i++) {
@@ -94,7 +107,7 @@ enable_raw_mode() {
 }
 
 int
-get_cursor_pos(int* rows, int* cols) {
+get_cursor_pos(int* lines, int* cols) {
     char buf[32];
     unsigned int i = 0;
 
@@ -120,7 +133,7 @@ get_cursor_pos(int* rows, int* cols) {
         return FAILURE;
     }
 
-    if (sscanf(&buf[2], "%d;%d", rows, cols) != 2) {
+    if (sscanf(&buf[2], "%d;%d", lines, cols) != 2) {
         return FAILURE;
     }
 
@@ -128,13 +141,13 @@ get_cursor_pos(int* rows, int* cols) {
 }
 
 int
-get_winsize(int* rows, int* cols) {
+get_winsize(int* lines, int* cols) {
     struct winsize ws;
 
     if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == FAILURE || ws.ws_col == 0) {
         // hard way to get all terminals screen size, moving the cursor to the bottom-right corner
         if (write(STDOUT_FILENO, "\x1b[999C\x1b[999B", 12) != 12) {
-            return get_cursor_pos(rows, cols);
+            return get_cursor_pos(lines, cols);
         }
 
         edzin_read_key();
@@ -143,7 +156,7 @@ get_winsize(int* rows, int* cols) {
     }
 
     *cols = ws.ws_col;
-    *rows = ws.ws_row;
+    *lines = ws.ws_row;
 
     return EXIT_SUCCESS;
 }
@@ -237,7 +250,7 @@ edzin_read_key() {
 }
 
 void
-edzin_append_row(char* s, size_t len) {
+edzin_append_line(char* s, size_t len) {
     E.line = realloc(E.line, sizeof(edzin_line_t) * (E.max_lines + 1));
 
     int at = E.max_lines;
@@ -248,7 +261,7 @@ edzin_append_row(char* s, size_t len) {
     E.line[at].content[len] = '\0';
     E.line[at].rsize = 0;
     E.line[at].render = NULL;
-    edzin_update_row(&E.line[at]);
+    edzin_update_line(&E.line[at]);
     E.max_lines++;
 }
 
@@ -261,11 +274,11 @@ edzin_die(const char* msg) {
 }
 
 void
-edzin_draw_rows(edzin_append_buf_t* buf) {
+edzin_draw_lines(edzin_append_buf_t* buf) {
     for (int i = 0; i < E.screen_props.lines; i++) {
-        int file_row = i + E.scroll.y_offset;
+        int file_line = i + E.scroll.y_offset;
 
-        if (file_row >= E.max_lines) {
+        if (file_line >= E.max_lines) {
             bool display_greatings = E.max_lines == 0;
 
             if (display_greatings && i == E.screen_props.lines / 3) {
@@ -292,7 +305,7 @@ edzin_draw_rows(edzin_append_buf_t* buf) {
                 buf_append(buf, "~", 1);
             }
         } else {
-            int len = E.line[file_row].rsize - E.scroll.x_offset;
+            int len = E.line[file_line].rsize - E.scroll.x_offset;
 
             if (len < 0) {
                 len = 0;
@@ -302,7 +315,7 @@ edzin_draw_rows(edzin_append_buf_t* buf) {
                 len = E.screen_props.cols;
             }
 
-            buf_append(buf, &E.line[file_row].render[E.scroll.x_offset], len);
+            buf_append(buf, &E.line[file_line].render[E.scroll.x_offset], len);
         }
 
         buf_append(buf, "\x1b[K", 3);
@@ -353,10 +366,10 @@ edzin_mv_cursor(int key) {
     }
 
     line = (E.cursor.y >= E.max_lines) ? NULL : &E.line[E.cursor.y];
-    int rowlen = line ? line->size : 0;
+    int linelen = line ? line->size : 0;
 
-    if (E.cursor.x > rowlen) {
-        E.cursor.x = rowlen;
+    if (E.cursor.x > linelen) {
+        E.cursor.x = linelen;
     }
 }
 
@@ -387,7 +400,7 @@ edzin_open(char* filename) {
             linelen--;
         }
 
-        edzin_append_row(line, linelen);
+        edzin_append_line(line, linelen);
     }
 
     free(line);
@@ -441,7 +454,7 @@ edzin_refresh_screen() {
 
     buf_append(&buf, "\x1b[?25l", 6);  // hide cursor before rendering
     buf_append(&buf, "\x1b[H", 3);  // vt100 escape sequence to go to line 1, col 1
-    edzin_draw_rows(&buf);
+    edzin_draw_lines(&buf);
     edzin_draw_statusbar(&E, &buf);
 
     char init_buf[32];
@@ -483,7 +496,7 @@ edzin_scroll() {
 }
 
 void
-edzin_update_row(edzin_line_t* line) {
+edzin_update_line(edzin_line_t* line) {
     int ntabs = 0;
 
     for (int i = 0; i < line->size; i++) {

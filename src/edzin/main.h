@@ -2,8 +2,12 @@
 #define EDZIN_MAIN_H
 
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <termios.h>
+
+extern uint64_t DBG_FILE_COUNT;
+extern uint64_t DBG_ALLOC_COUNT;
 
 #define EDZIN_VERSION "0.0.1"
 #define TAB_STOP_SIZE 4
@@ -61,12 +65,12 @@ typedef struct {
 
 typedef struct {
     struct termios TERM_MODE;
-    edzin_screen_props_t screen_props;
-    edzin_cursor_t cursor;
-    int max_lines;
-    edzin_line_t* line;
-    edzin_scroll_t scroll;
     int nfiles;
+    int max_lines;
+    edzin_cursor_t cursor;
+    edzin_scroll_t scroll;
+    edzin_screen_props_t screen_props;
+    edzin_line_t* line;
     edzin_file_t* files;
 } edzin_config_t;
 
@@ -86,15 +90,15 @@ void buf_free(edzin_append_buf_t* buf);
 
 int edzin_read_key();
 int edzin_transform_x_to_rx(edzin_line_t* line, int content_x);
-void edzin_append_row(char* s, size_t len);
+void edzin_append_line(char* s, size_t len);
 void edzin_die(const char* msg);
-void edzin_draw_rows(edzin_append_buf_t* buf);
+void edzin_draw_lines(edzin_append_buf_t* buf);
 void edzin_init();
 void edzin_mv_cursor(int key);
 void edzin_open(char* filename);
 void edzin_process_keypress();
 void edzin_refresh_screen();
 void edzin_scroll();
-void edzin_update_row(edzin_line_t* line);
+void edzin_update_line(edzin_line_t* line);
 
 #endif  // EDZIN_MAIN_H

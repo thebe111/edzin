@@ -13,7 +13,7 @@ build: src/main.c src/handlers.c src/ui.c src/edzin/main.h src/edzin/handlers.h 
 		-Wall \
 		-Wextra \
 		-pedantic \
-		-std=c99 
+		-std=c99 \
 		# -DUO_ENABLE_ARROW_KEYS \
 		# -DUO_CONTINUE_SCROLL_ON_LEFT \
 		# -DUO_CONTINUE_SCROLL_ON_RIGHT
