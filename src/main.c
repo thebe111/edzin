@@ -50,7 +50,7 @@ clean_up() {
         edzin_die("tcsetattr");
     }
 
-    for (int i = 0; i < E.max_lines; i++) {
+    for (int i = 0; i < E.num_lines; i++) {
         free(E.line[i].content);
         free(E.line[i].render);
     }
@@ -251,9 +251,9 @@ edzin_read_key() {
 
 void
 edzin_append_line(char* s, size_t len) {
-    E.line = realloc(E.line, sizeof(edzin_line_t) * (E.max_lines + 1));
+    E.line = realloc(E.line, sizeof(edzin_line_t) * (E.num_lines + 1));
 
-    int at = E.max_lines;
+    int at = E.num_lines;
 
     E.line[at].size = len;
     E.line[at].content = malloc(len + 1);
@@ -262,7 +262,7 @@ edzin_append_line(char* s, size_t len) {
     E.line[at].rsize = 0;
     E.line[at].render = NULL;
     edzin_update_line(&E.line[at]);
-    E.max_lines++;
+    E.num_lines++;
 }
 
 void
@@ -278,8 +278,8 @@ edzin_draw_lines(edzin_append_buf_t* buf) {
     for (int i = 0; i < E.screen_props.lines; i++) {
         int file_line = i + E.scroll.y_offset;
 
-        if (file_line >= E.max_lines) {
-            bool display_greatings = E.max_lines == 0;
+        if (file_line >= E.num_lines) {
+            bool display_greatings = E.num_lines == 0;
 
             if (display_greatings && i == E.screen_props.lines / 3) {
                 char greatings_msg[80];
@@ -330,7 +330,7 @@ edzin_init() {
     E.cursor.rx = 0;
     E.scroll.x_offset = 0;
     E.scroll.y_offset = 0;
-    E.max_lines = 0;
+    E.num_lines = 0;
     E.line = NULL;
     E.nfiles = 0;
     E.files = NULL;
@@ -344,7 +344,7 @@ edzin_init() {
 
 void
 edzin_mv_cursor(int key) {
-    edzin_line_t* line = (E.cursor.y >= E.max_lines) ? NULL : &E.line[E.cursor.y];
+    edzin_line_t* line = (E.cursor.y >= E.num_lines) ? NULL : &E.line[E.cursor.y];
 
     switch (key) {
         case 'h':
@@ -357,7 +357,7 @@ edzin_mv_cursor(int key) {
             break;
         case 'k':
         case ARROW_UP:
-            handle_mv_cursos_up(&E);
+            handle_mv_cursor_up(&E);
             break;
         case 'l':
         case ARROW_RIGHT:
@@ -365,7 +365,7 @@ edzin_mv_cursor(int key) {
             break;
     }
 
-    line = (E.cursor.y >= E.max_lines) ? NULL : &E.line[E.cursor.y];
+    line = (E.cursor.y >= E.num_lines) ? NULL : &E.line[E.cursor.y];
     int linelen = line ? line->size : 0;
 
     if (E.cursor.x > linelen) {
@@ -418,13 +418,13 @@ edzin_process_keypress() {
             exit(EXIT_SUCCESS);
             break;
         case 'G':
-            E.cursor.y = E.max_lines;
+            E.cursor.y = E.num_lines;
             break;
         case HOME_KEY:
             E.cursor.x = 0;
             break;
         case END_KEY:
-            if (E.cursor.y < E.max_lines) {
+            if (E.cursor.y < E.num_lines) {
                 E.cursor.x = E.line[E.cursor.y].size;
             }
 
@@ -474,7 +474,7 @@ void
 edzin_scroll() {
     E.cursor.rx = 0;
 
-    if (E.cursor.y < E.max_lines) {
+    if (E.cursor.y < E.num_lines) {
         E.cursor.rx = edzin_transform_x_to_rx(&E.line[E.cursor.y], E.cursor.x);
     }
 

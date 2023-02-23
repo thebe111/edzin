@@ -28,7 +28,7 @@ handle_arrow_keys(__attribute__((unused)) char key) {
 
 void
 handle_mv_cursor_down(edzin_config_t* E) {
-    if (E->cursor.y < (E->max_lines + E->screen_props.lines - 1)) {
+    if (E->cursor.y < (E->num_lines + E->screen_props.lines - 1)) {
         E->cursor.y++;
     }
 }
@@ -66,7 +66,7 @@ handle_mv_cursor_right(edzin_config_t* E, edzin_line_t* line) {
 }
 
 void
-handle_mv_cursos_up(edzin_config_t* E) {
+handle_mv_cursor_up(edzin_config_t* E) {
     if (E->cursor.y > 0) {
         E->cursor.y--;
     }
@@ -79,8 +79,8 @@ handle_page_down(edzin_config_t* E, int c) {
     } else if (c == PAGE_DOWN) {
         E->cursor.y = E->scroll.y_offset + E->screen_props.lines - 1;
 
-        if (E->cursor.y > E->max_lines) {
-            E->cursor.y = E->max_lines + E->screen_props.lines - 1;
+        if (E->cursor.y > E->num_lines) {
+            E->cursor.y = E->num_lines + E->screen_props.lines - 1;
         }
     }
 

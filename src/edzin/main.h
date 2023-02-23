@@ -66,7 +66,7 @@ typedef struct {
 typedef struct {
     struct termios TERM_MODE;
     int nfiles;
-    int max_lines;
+    int num_lines;
     edzin_cursor_t cursor;
     edzin_scroll_t scroll;
     edzin_screen_props_t screen_props;
