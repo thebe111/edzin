@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <termios.h>
+#include <time.h>
 
 extern uint64_t DBG_FILE_COUNT;
 extern uint64_t DBG_ALLOC_COUNT;
@@ -64,6 +65,11 @@ typedef struct {
 } edzin_file_t;
 
 typedef struct {
+    char msg[80];
+    time_t msg_time;
+} edzin_status_t;
+
+typedef struct {
     struct termios TERM_MODE;
     int nfiles;
     int num_lines;
@@ -72,6 +78,7 @@ typedef struct {
     edzin_screen_props_t screen_props;
     edzin_line_t* line;
     edzin_file_t* files;
+    edzin_status_t status;
 } edzin_config_t;
 
 typedef struct {
@@ -100,5 +107,6 @@ void edzin_process_keypress();
 void edzin_refresh_screen();
 void edzin_scroll();
 void edzin_update_line(edzin_line_t* line);
+void edzin_set_status_msg(const char* fmt, ...);
 
 #endif  // EDZIN_MAIN_H

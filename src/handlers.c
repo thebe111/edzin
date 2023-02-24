@@ -14,8 +14,7 @@ handle_arrow_keys(char key) {
         case 'D':
             return ARROW_LEFT;
         default:
-            // FIXME: change to a warning
-            edzin_die("error on processing UO_ARROW_KEYS");
+            edzin_set_status_msg("ERR: error processing UO_ARROW_KEYS");
             return ESCAPE;
     }
 }
@@ -40,7 +39,7 @@ handle_mv_cursor_left(edzin_config_t* E) {
         E->cursor.x--;
     } else if (E->cursor.y > 0) {
         E->cursor.y--;
-        E->cursor.x = E->row[E->cursor.y].size;
+        E->cursor.x = E->line[E->cursor.y].size;
     }
 #else
     if (E->cursor.x > 0) {
@@ -52,9 +51,9 @@ handle_mv_cursor_left(edzin_config_t* E) {
 void
 handle_mv_cursor_right(edzin_config_t* E, edzin_line_t* line) {
 #ifdef UO_CONTINUE_SCROLL_ON_RIGHT
-    if (row && E->cursor.x < row->size) {
+    if (line && E->cursor.x < line->size) {
         E->cursor.x++;
-    } else if (row && E->cursor.x == row->size) {
+    } else if (line && E->cursor.x == line->size) {
         E->cursor.y++;
         E->cursor.x = 0;
     }

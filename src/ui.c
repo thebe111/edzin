@@ -1,4 +1,5 @@
 #include "edzin/ui.h"
+#include <string.h>
 #include <unistd.h>
 
 void
@@ -40,4 +41,20 @@ edzin_draw_statusbar(edzin_config_t* E, edzin_append_buf_t* buf) {
     }
 
     buf_append(buf, "\x1b[m", 3);
+    buf_append(buf, "\r\n", 2);
+}
+
+void
+edzin_draw_msgbar(edzin_config_t* E, edzin_append_buf_t* buf) {
+    buf_append(buf, "\x1b[K", 3);
+
+    int msglen = strlen(E->status.msg);
+
+    if (msglen > E->screen_props.cols) {
+        msglen = E->screen_props.cols;
+    }
+
+    if (msglen && time(NULL) - E->status.msg_time < 5) {
+        buf_append(buf, E->status.msg, msglen);
+    }
 }

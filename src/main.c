@@ -15,6 +15,7 @@
 #include "edzin/ui.h"
 #include <ctype.h>
 #include <errno.h>
+#include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -35,6 +36,8 @@ main(int argc, char** argv) {
     if (argc >= 2) {
         edzin_open(/*filename=*/argv[1]);
     }
+
+    edzin_set_status_msg("HELP: Ctrl+Q = quit");
 
     while (true) {
         edzin_refresh_screen();
@@ -334,12 +337,14 @@ edzin_init() {
     E.line = NULL;
     E.nfiles = 0;
     E.files = NULL;
+    E.status.msg[0] = '\0';
+    E.status.msg_time = 0;
 
     if (get_winsize(&E.screen_props.lines, &E.screen_props.cols) == FAILURE) {
         edzin_die("get_winsize");
     }
 
-    E.screen_props.lines -= 1;
+    E.screen_props.lines -= 2;
 }
 
 void
@@ -456,6 +461,7 @@ edzin_refresh_screen() {
     buf_append(&buf, "\x1b[H", 3);  // vt100 escape sequence to go to line 1, col 1
     edzin_draw_lines(&buf);
     edzin_draw_statusbar(&E, &buf);
+    edzin_draw_msgbar(&E, &buf);
 
     char init_buf[32];
 
@@ -524,4 +530,14 @@ edzin_update_line(edzin_line_t* line) {
 
     line->render[idx] = 0x00;
     line->rsize = idx;
+}
+
+void
+edzin_set_status_msg(const char* fmt, ...) {
+    va_list ap;
+
+    va_start(ap, fmt);
+    vsnprintf(E.status.msg, sizeof(E.status.msg), fmt, ap);
+    va_end(ap);
+    E.status.msg_time = time(NULL);
 }
