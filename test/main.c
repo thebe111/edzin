@@ -1,5 +1,5 @@
 #include "./example.c"
-#include "./edzin.c"
+#include "./handlers.c"
 #include <check.h>
 #include <stdlib.h>
 
@@ -17,7 +17,7 @@ main() {
     /*
      * Add new suites
      */
-    srunner_add_suite(r, __edzin());
+    srunner_add_suite(r, __handlers());
 
     srunner_run_all(r, CK_NORMAL);
     fails = srunner_ntests_failed(r);

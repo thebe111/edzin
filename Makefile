@@ -1,17 +1,25 @@
-CFLAGS = -Wall -Wextra -Werror -pedantic -std=c99
+CFLAGS = \
+		 -Wall \
+		 -Wextra \
+		 -Werror \
+		 -pedantic \
+		 -std=c99
 TARGETS = \
 		  src/main.c \
 		  src/handlers.c \
 		  src/ui.c 
-
 OPTIONS = \
 		  -DUO_ENABLE_ARROW_KEYS \
 		  -DUO_CONTINUE_SCROLL_ON_LEFT \
 		  -DUO_CONTINUE_SCROLL_ON_RIGHT
 
 .PHONY:
-build: src/main.c src/handlers.c src/ui.c
-	$(CC) $(TARGETS) -o build/edzin $(CFLAGS) # $(OPTIONS)
+build: 
+	$(CC) $(TARGETS) -o build/edzin $(CFLAGS)
+
+.PHONY:
+uobuild: 
+	$(CC) $(TARGETS) -o build/edzin $(CFLAGS) $(OPTIONS)
 
 OBJ = $(shell find src -type f -iname '*.h' -or -iname '*.c')
 
@@ -20,8 +28,15 @@ lint: $(OBJ)
 	@clang-format -style=file -i $(OBJ)
 	@echo "reformatted successfully"
 
-LIBS = -lcheck -lm -lpthread -lrt -lsubunit
+T_PATH = build/_t
+T_LIBS = -lcheck -lm -lpthread -lrt -lsubunit
+T_OPTIONS = -DTEST
 
 .PHONY:
 test:
-	$(CC) test/main.c -o build/_t $(LIBS)
+	@$(CC) $(TARGETS) test/main.c -o $(T_PATH) $(T_LIBS) $(T_OPTIONS)
+
+.PHONY:
+uotest:
+	@$(CC) $(TARGETS) test/main.c -o $(T_PATH) $(T_LIBS) $(OPTIONS) $(T_OPTIONS)
+

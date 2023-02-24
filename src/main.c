@@ -28,6 +28,7 @@
  */
 edzin_config_t E;
 
+#ifndef TEST
 int
 main(int argc, char** argv) {
     enable_raw_mode();
@@ -46,6 +47,7 @@ main(int argc, char** argv) {
 
     return EXIT_SUCCESS;
 }
+#endif
 
 void
 clean_up() {

@@ -1,12 +1,7 @@
 #include <check.h>
 
-START_TEST(test_example_success) {
+START_TEST(test_example) {
     ck_assert_int_eq(1, 1);
-}
-END_TEST
-
-START_TEST(test_example_failure) {
-    ck_assert_int_eq(1, 0);
 }
 END_TEST
 
@@ -18,15 +13,14 @@ __example(void) {
     /* 
      * insert suite name here
      */
-    s = suite_create("EXAMPLE");
+    s = suite_create("example.c");
 
     tc_core = tcase_create("core");
 
     /*
      * For each new test case new to produce a new line 'linking' the test wiht the suite core
      */
-    tcase_add_test(tc_core, test_example_success);
-    tcase_add_test(tc_core, test_example_failure);
+    tcase_add_test(tc_core, test_example);
 
     suite_add_tcase(s, tc_core);
 

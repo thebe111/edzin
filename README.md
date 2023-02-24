@@ -5,8 +5,25 @@ An vim like editor for educational purposes (based on a tutorial)
 ### How To Run
 
 ```
+# with user options
+$ make -B uobuild
+$ ./build/edzin
+
+# without user options 
 $ make -B build
 $ ./build/edzin
+```
+
+### How To Test
+
+```
+# with user options
+$ make -B uotest 
+$ ./build/_t
+
+# without user options
+$ make -B test
+$ ./build/_t
 ```
 
 ### User Options Flags
