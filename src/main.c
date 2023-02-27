@@ -13,8 +13,10 @@
 #include "edzin/main.h"
 #include "edzin/handlers.h"
 #include "edzin/ui.h"
+#include <assert.h>
 #include <ctype.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -38,7 +40,7 @@ main(int argc, char** argv) {
         edzin_open(/*filename=*/argv[1]);
     }
 
-    edzin_set_status_msg("HELP: Ctrl+Q = quit");
+    edzin_set_status_msg("HELP: Ctrl+S = save | Ctrl+Q = quit");
 
     while (true) {
         edzin_refresh_screen();
@@ -55,8 +57,8 @@ clean_up() {
         edzin_die("tcsetattr");
     }
 
-    for (int i = 0; i < E.num_lines; i++) {
-        free(E.line[i].content);
+    for (int i = 0; i < E.nlines; i++) {
+        free(E.line[i].chars);
         free(E.line[i].render);
     }
 
@@ -68,11 +70,11 @@ clean_up() {
 }
 
 int
-edzin_transform_x_to_rx(edzin_line_t* line, int content_x) {
+edzin_transform_x_to_rx(edzin_line_t* line, int chars_x) {
     int render_x = 0;
 
-    for (int i = 0; i < content_x; i++) {
-        if (line->content[i] == 0x09) {
+    for (int i = 0; i < chars_x; i++) {
+        if (line->chars[i] == 0x09) {
             render_x += (TAB_STOP_SIZE - 1) - (render_x % TAB_STOP_SIZE);
         }
 
@@ -256,18 +258,18 @@ edzin_read_key() {
 
 void
 edzin_append_line(char* s, size_t len) {
-    E.line = realloc(E.line, sizeof(edzin_line_t) * (E.num_lines + 1));
+    E.line = realloc(E.line, sizeof(edzin_line_t) * (E.nlines + 1));
 
-    int at = E.num_lines;
+    int at = E.nlines;
 
     E.line[at].size = len;
-    E.line[at].content = malloc(len + 1);
-    memcpy(E.line[at].content, s, len);
-    E.line[at].content[len] = '\0';
+    E.line[at].chars = malloc(len + 1);
+    memcpy(E.line[at].chars, s, len);
+    E.line[at].chars[len] = '\0';
     E.line[at].rsize = 0;
     E.line[at].render = NULL;
     edzin_update_line(&E.line[at]);
-    E.num_lines++;
+    E.nlines++;
 }
 
 void
@@ -283,8 +285,8 @@ edzin_draw_lines(edzin_append_buf_t* buf) {
     for (int i = 0; i < E.screen_props.lines; i++) {
         int file_line = i + E.scroll.y_offset;
 
-        if (file_line >= E.num_lines) {
-            bool display_greatings = E.num_lines == 0;
+        if (file_line >= E.nlines) {
+            bool display_greatings = E.nlines == 0;
 
             if (display_greatings && i == E.screen_props.lines / 3) {
                 char greatings_msg[80];
@@ -335,7 +337,7 @@ edzin_init() {
     E.cursor.rx = 0;
     E.scroll.x_offset = 0;
     E.scroll.y_offset = 0;
-    E.num_lines = 0;
+    E.nlines = 0;
     E.line = NULL;
     E.nfiles = 0;
     E.files = NULL;
@@ -351,7 +353,7 @@ edzin_init() {
 
 void
 edzin_mv_cursor(int key) {
-    edzin_line_t* line = (E.cursor.y >= E.num_lines) ? NULL : &E.line[E.cursor.y];
+    edzin_line_t* line = (E.cursor.y >= E.nlines) ? NULL : &E.line[E.cursor.y];
 
     switch (key) {
         case 'h':
@@ -372,7 +374,7 @@ edzin_mv_cursor(int key) {
             break;
     }
 
-    line = (E.cursor.y >= E.num_lines) ? NULL : &E.line[E.cursor.y];
+    line = (E.cursor.y >= E.nlines) ? NULL : &E.line[E.cursor.y];
     int linelen = line ? line->size : 0;
 
     if (E.cursor.x > linelen) {
@@ -419,22 +421,37 @@ edzin_process_keypress() {
     int c = edzin_read_key();
 
     switch (c) {
+        case '\r':
+            break;
         case CTRL_KEY('q'):
+            /* if (E.files[0].state == MODIFIED) { */
+            /* edzin_set_status_msg("WARN: file has unsaved changes"); */
+            /* return; */
+            /* } */
             write(STDOUT_FILENO, "\x1b[2J", 4);
             write(STDOUT_FILENO, "\x1b[H", 3);
             exit(EXIT_SUCCESS);
             break;
+        case CTRL_KEY('s'):
+            edzin_save();
+            break;
         case 'G':
-            E.cursor.y = E.num_lines;
+            E.cursor.y = E.nlines;
             break;
         case HOME_KEY:
             E.cursor.x = 0;
             break;
-        case END_KEY:
-            if (E.cursor.y < E.num_lines) {
+        case END_KEY: {
+            if (E.cursor.y < E.nlines) {
                 E.cursor.x = E.line[E.cursor.y].size;
             }
-
+        } break;
+        case BACKSPACE:
+            edzin_backspace_char();
+            break;
+        case CTRL_KEY('h'):
+        case DELETE_KEY:
+            edzin_delete_char();
             break;
         case PAGE_UP:
         case PAGE_DOWN:
@@ -449,6 +466,12 @@ edzin_process_keypress() {
         case 'l':
         case ARROW_RIGHT:
             edzin_mv_cursor(c);
+            break;
+        case CTRL_KEY('l'):
+        case '\x1b':
+            break;
+        default:
+            edzin_insert_char(c);
             break;
     }
 }
@@ -482,23 +505,17 @@ void
 edzin_scroll() {
     E.cursor.rx = 0;
 
-    if (E.cursor.y < E.num_lines) {
+    if (E.cursor.y < E.nlines) {
         E.cursor.rx = edzin_transform_x_to_rx(&E.line[E.cursor.y], E.cursor.x);
     }
 
     if (E.cursor.y < E.scroll.y_offset) {
         E.scroll.y_offset = E.cursor.y;
-    }
-
-    if (E.cursor.y >= E.scroll.y_offset + E.screen_props.lines) {
+    } else if (E.cursor.y >= E.scroll.y_offset + E.screen_props.lines) {
         E.scroll.y_offset = E.cursor.y - E.screen_props.lines + 1;
-    }
-
-    if (E.cursor.rx < E.scroll.x_offset) {
+    } else if (E.cursor.rx < E.scroll.x_offset) {
         E.scroll.x_offset = E.cursor.rx;
-    }
-
-    if (E.cursor.rx >= E.scroll.x_offset + E.screen_props.cols) {
+    } else if (E.cursor.rx >= E.scroll.x_offset + E.screen_props.cols) {
         E.scroll.x_offset = E.cursor.rx - E.screen_props.cols + 1;
     }
 }
@@ -508,7 +525,7 @@ edzin_update_line(edzin_line_t* line) {
     int ntabs = 0;
 
     for (int i = 0; i < line->size; i++) {
-        if (line->content[i] == 0x09) {
+        if (line->chars[i] == 0x09) {
             ntabs++;
         }
     }
@@ -519,14 +536,14 @@ edzin_update_line(edzin_line_t* line) {
     int idx = 0;
 
     for (int i = 0; i < line->size; i++) {
-        if (line->content[i] == 0x09) {
+        if (line->chars[i] == 0x09) {
             line->render[idx++] = 0x20;
 
             while (idx % TAB_STOP_SIZE != 0) {
                 line->render[idx++] = 0x20;
             }
         } else {
-            line->render[idx++] = line->content[i];
+            line->render[idx++] = line->chars[i];
         }
     }
 
@@ -542,4 +559,168 @@ edzin_set_status_msg(const char* fmt, ...) {
     vsnprintf(E.status.msg, sizeof(E.status.msg), fmt, ap);
     va_end(ap);
     E.status.msg_time = time(NULL);
+}
+
+void
+edzin_line_insert_char(edzin_line_t* line, int at, int c) {
+    if (at < 0 || at > line->size) {
+        at = line->size;
+    }
+
+    line->chars = realloc(line->chars, line->size + 2);
+    memmove(&line->chars[at + 1], &line->chars[at], line->size - at + 1);
+    line->size++;
+    line->chars[at] = c;
+    edzin_update_line(line);
+}
+
+void
+edzin_insert_char(int c) {
+    if (E.cursor.y == E.nlines) {
+        edzin_append_line("", 0);
+    }
+
+    edzin_line_insert_char(&E.line[E.cursor.y], E.cursor.x, c);
+    E.cursor.x++;
+    E.files[0].state = MODIFIED;
+}
+
+char*
+edzin_lines_to_string(int* buflen) {
+    int totallen = 0;
+
+    for (int i = 0; i < E.nlines; i++) {
+        totallen += E.line[i].size + 1;
+    }
+
+    *buflen = totallen;
+
+    char* buf = malloc(totallen);
+    char* p = buf;
+
+    for (int i = 0; i < E.nlines; i++) {
+        memcpy(p, E.line[i].chars, E.line[i].size);
+        p += E.line[i].size;
+        *p = '\n';
+        p++;
+    }
+
+    return buf;
+}
+
+void
+edzin_save() {
+    if (E.files[0].filename == NULL) {
+        edzin_set_status_msg("WARN: file doesn't have a name");
+        return;
+    }
+
+    int len;
+    char* buf = edzin_lines_to_string(&len);
+    int fd = open(E.files[0].filename, O_RDWR | O_CREAT, 0644);
+
+    if (fd != FAILURE) {
+        if (ftruncate(fd, len) != FAILURE && write(fd, buf, len) != FAILURE) {
+            close(fd);
+            free(buf);
+            edzin_set_status_msg("%d bytes written to disk", len);
+            E.files[0].state = UNMODIFIED;
+            return;
+        }
+
+        close(fd);
+    }
+
+    free(buf);
+    edzin_set_status_msg("can't save .. i/o operation error: %s", strerror(errno));
+}
+
+void
+edzin_line_delete_char(edzin_line_t* line, int at) {
+    if (at < 0 && at >= line->size) {
+        return;
+    }
+
+    memmove(&line->chars[at], &line->chars[at + 1], line->size - at);
+    line->size--;
+    edzin_update_line(line);
+    E.files[0].state = MODIFIED;
+}
+
+void
+edzin_backspace_char() {
+    edzin_line_t* line = &E.line[E.cursor.y];
+
+    if (E.cursor.x > 0) {
+        edzin_line_delete_char(line, E.cursor.x - 1);
+        E.cursor.x--;
+    }
+
+#ifdef UO_ENABLE_DELETE_LINE_JOIN
+    if (E.cursor.y > 0) {
+        edzin_line_t* prev_line = &E.line[E.cursor.y - 1];
+
+        E.cursor.x = prev_line->size + line->size;
+        edzin_line_append_str(prev_line, line->chars, line->size);
+        edzin_delete_line(E.cursor.y);
+        E.cursor.y--;
+    }
+#endif
+}
+
+void
+edzin_delete_char() {
+    if (E.cursor.y == E.nlines) {
+        return;
+    }
+
+    if (E.cursor.x == 0 && E.cursor.y == 0) {
+        return;
+    }
+
+    edzin_line_t* line = &E.line[E.cursor.y];
+
+    if (E.cursor.x > 0 && E.cursor.x < *(&E.line[E.cursor.y].rsize)) {
+        edzin_mv_cursor(ARROW_RIGHT);
+        edzin_line_delete_char(line, E.cursor.x - 1);
+        E.cursor.x--;
+    }
+
+#ifdef UO_ENABLE_DELETE_LINE_JOIN
+    if (E.cursor.y + 1 < E.nlines) {
+        edzin_line_t* next_line = &E.line[E.cursor.y + 1];
+
+        E.cursor.x = line->size + next_line->size;
+        edzin_line_append_str(line, next_line->chars, next_line->size);
+        edzin_delete_line(E.cursor.y + 1);
+    }
+#endif
+}
+
+void
+edzin_free_line(edzin_line_t* line) {
+    free(line->render);
+    free(line->chars);
+}
+
+void
+edzin_delete_line(int at) {
+    if (at < 0 || at >= E.nlines) {
+        return;
+    }
+
+    edzin_free_line(&E.line[at]);
+    memmove(&E.line[at], &E.line[at - 1], sizeof(edzin_line_t) * (E.nlines - at - 1));
+    E.nlines--;
+    E.files[0].state = MODIFIED;
+}
+
+void
+edzin_line_append_str(edzin_line_t* line, char* s, size_t len) {
+    line->chars = realloc(line->chars, line->size + len + 1);
+    memcpy(&line->chars[line->size], s, len);
+    line->size += len;
+    line->chars[line->size] = '\0';
+    edzin_update_line(line);
+    E.files[0].state = MODIFIED;
 }

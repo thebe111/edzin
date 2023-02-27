@@ -19,8 +19,8 @@ edzin_draw_statusbar(edzin_config_t* E, edzin_append_buf_t* buf) {
     }
 
     char status[80], rstatus[80];
-    int len = snprintf(status, sizeof(status), "%.20s", f);
-    int file_percent = (E->cursor.y * 100) / (E->num_lines > 0 ? E->num_lines : 1);
+    int len = snprintf(status, sizeof(status), "%.20s [%s]", f, edzin_file_state_to_str(E->files[0].state));
+    int file_percent = (E->cursor.y * 100) / (E->nlines > 0 ? E->nlines : 1);
     int rfile_percent = file_percent > 100 ? 100 : file_percent;
     int rlen = snprintf(rstatus, sizeof(rstatus), "%d:%d\x20%d%%", E->cursor.y + 1, E->cursor.x + 1, rfile_percent);
 
@@ -56,5 +56,17 @@ edzin_draw_msgbar(edzin_config_t* E, edzin_append_buf_t* buf) {
 
     if (msglen && time(NULL) - E->status.msg_time < 5) {
         buf_append(buf, E->status.msg, msglen);
+    }
+}
+
+char*
+edzin_file_state_to_str(enum edzin_file_state s) {
+    switch (s) {
+        case UNMODIFIED:
+            return "-";
+        case MODIFIED:
+            return "+";
+        default:
+            return "?";
     }
 }

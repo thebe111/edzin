@@ -7,9 +7,6 @@
 #include <termios.h>
 #include <time.h>
 
-extern uint64_t DBG_FILE_COUNT;
-extern uint64_t DBG_ALLOC_COUNT;
-
 #define EDZIN_VERSION "0.0.1"
 #define TAB_STOP_SIZE 4
 
@@ -22,6 +19,7 @@ extern uint64_t DBG_ALLOC_COUNT;
     { NULL, 0 }
 
 enum edzin_key {
+    BACKSPACE = 127,
     ARROW_LEFT = 1000,
     ARROW_RIGHT,
     ARROW_UP,
@@ -36,7 +34,7 @@ enum edzin_key {
 typedef struct {
     int size;
     int rsize;  // render size
-    char* content;
+    char* chars;
     char* render;
 } edzin_line_t;
 
@@ -72,7 +70,7 @@ typedef struct {
 typedef struct {
     struct termios TERM_MODE;
     int nfiles;
-    int num_lines;
+    int nlines;
     edzin_cursor_t cursor;
     edzin_scroll_t scroll;
     edzin_screen_props_t screen_props;
@@ -96,7 +94,7 @@ void buf_append(edzin_append_buf_t* buf, const char* s, int len);
 void buf_free(edzin_append_buf_t* buf);
 
 int edzin_read_key();
-int edzin_transform_x_to_rx(edzin_line_t* line, int content_x);
+int edzin_transform_x_to_rx(edzin_line_t* line, int chars_x);
 void edzin_append_line(char* s, size_t len);
 void edzin_die(const char* msg);
 void edzin_draw_lines(edzin_append_buf_t* buf);
@@ -108,5 +106,15 @@ void edzin_refresh_screen();
 void edzin_scroll();
 void edzin_update_line(edzin_line_t* line);
 void edzin_set_status_msg(const char* fmt, ...);
+void edzin_line_insert_char(edzin_line_t* line, int at, int c);
+void edzin_insert_char(int c);
+char* edzin_lines_to_string(int* buflen);
+void edzin_save();
+void edzin_line_delete_char(edzin_line_t* line, int at);
+void edzin_delete_char();
+void edzin_backspace_char();
+void edzin_free_line(edzin_line_t* line);
+void edzin_delete_line(int at);
+void edzin_line_append_str(edzin_line_t* line, char* s, size_t len);
 
 #endif  // EDZIN_MAIN_H
