@@ -84,37 +84,34 @@ typedef struct {
     int len;
 } edzin_append_buf_t;
 
-void clean_up();
-void enable_raw_mode();
-
-int get_cursor_pos();
-int get_winsize();
-
-void buf_append(edzin_append_buf_t* buf, const char* s, int len);
-void buf_free(edzin_append_buf_t* buf);
-
+char* edzin_lines_to_str(int* buflen);
+int edzin_get_cursor_pos();
+int edzin_get_winsize();
 int edzin_read_key();
 int edzin_transform_x_to_rx(edzin_line_t* line, int chars_x);
 void edzin_append_line(char* s, size_t len);
+void edzin_backspace_char();
+void edzin_buf_append(edzin_append_buf_t* buf, const char* s, int len);
+void edzin_buf_free(edzin_append_buf_t* buf);
+void edzin_clean_up();
+void edzin_delete_char();
+void edzin_delete_line(int at);
 void edzin_die(const char* msg);
 void edzin_draw_lines(edzin_append_buf_t* buf);
+void edzin_enable_raw_mode();
+void edzin_free_line(edzin_line_t* line);
 void edzin_init();
+void edzin_insert_char(int c);
+void edzin_line_append_str(edzin_line_t* line, char* s, size_t len);
+void edzin_line_delete_char(edzin_line_t* line, int at);
+void edzin_line_insert_char(edzin_line_t* line, int at, int c);
 void edzin_mv_cursor(int key);
 void edzin_open(char* filename);
 void edzin_process_keypress();
 void edzin_refresh_screen();
-void edzin_scroll();
-void edzin_update_line(edzin_line_t* line);
-void edzin_set_status_msg(const char* fmt, ...);
-void edzin_line_insert_char(edzin_line_t* line, int at, int c);
-void edzin_insert_char(int c);
-char* edzin_lines_to_string(int* buflen);
 void edzin_save();
-void edzin_line_delete_char(edzin_line_t* line, int at);
-void edzin_delete_char();
-void edzin_backspace_char();
-void edzin_free_line(edzin_line_t* line);
-void edzin_delete_line(int at);
-void edzin_line_append_str(edzin_line_t* line, char* s, size_t len);
+void edzin_scroll();
+void edzin_set_status_msg(const char* fmt, ...);
+void edzin_update_line(edzin_line_t* line);
 
 #endif  // EDZIN_MAIN_H

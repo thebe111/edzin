@@ -33,7 +33,7 @@ edzin_config_t E;
 #ifndef TEST
 int
 main(int argc, char** argv) {
-    enable_raw_mode();
+    edzin_enable_raw_mode();
     edzin_init();
 
     if (argc >= 2) {
@@ -51,70 +51,31 @@ main(int argc, char** argv) {
 }
 #endif
 
-void
-clean_up() {
-    if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &E.TERM_MODE) == FAILURE) {
-        edzin_die("tcsetattr");
-    }
+char*
+edzin_lines_to_str(int* buflen) {
+    int totallen = 0;
 
     for (int i = 0; i < E.nlines; i++) {
-        free(E.line[i].chars);
-        free(E.line[i].render);
+        totallen += E.line[i].size + 1;
     }
 
-    for (int i = 0; i < E.nfiles; i++) {
-        free(E.files[i].filename);
+    *buflen = totallen;
+
+    char* buf = malloc(totallen);
+    char* p = buf;
+
+    for (int i = 0; i < E.nlines; i++) {
+        memcpy(p, E.line[i].chars, E.line[i].size);
+        p += E.line[i].size;
+        *p = '\n';
+        p++;
     }
 
-    free(E.files);
+    return buf;
 }
 
 int
-edzin_transform_x_to_rx(edzin_line_t* line, int chars_x) {
-    int render_x = 0;
-
-    for (int i = 0; i < chars_x; i++) {
-        if (line->chars[i] == 0x09) {
-            render_x += (TAB_STOP_SIZE - 1) - (render_x % TAB_STOP_SIZE);
-        }
-
-        render_x++;
-    }
-
-    return render_x;
-}
-
-void
-enable_raw_mode() {
-    if (tcgetattr(STDIN_FILENO, &E.TERM_MODE) == FAILURE) {
-        edzin_die("tcgetattr");
-    }
-
-    atexit(clean_up);
-    struct termios term_raw_mode = E.TERM_MODE;
-    term_raw_mode.c_cflag |= (/*set chars size (CS) to 8 bits per byte=*/CS8);
-    term_raw_mode.c_oflag = ~(/*turn off output processing (\n|\r\n)=*/OPOST);
-    term_raw_mode.c_iflag = ~(
-        /*disable ctrl+(s|q)=*/IXON |
-        /*fix ctrl+m=*/ICRNL |
-        /*disable breaking signal e.g: ctrl+c=*/BRKINT |
-        /*enable parity checking=*/INPCK |
-        /*8th bith will be stripped, flipped to 0=*/ISTRIP);
-    term_raw_mode.c_lflag = ~(
-        /*disable echoing=*/ECHO |
-        /*disable canonical mode=*/ICANON |
-        /*disable ctrl+(c|z)=*/ISIG |
-        /*disable ctrl+v=*/IEXTEN);
-    term_raw_mode.c_cc[VMIN] = 0;
-    term_raw_mode.c_cc[VTIME] = 1;
-
-    if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &term_raw_mode) == FAILURE) {
-        edzin_die("tcsetattr");
-    }
-}
-
-int
-get_cursor_pos(int* lines, int* cols) {
+edzin_get_cursor_pos(int* lines, int* cols) {
     char buf[32];
     unsigned int i = 0;
 
@@ -148,13 +109,13 @@ get_cursor_pos(int* lines, int* cols) {
 }
 
 int
-get_winsize(int* lines, int* cols) {
+edzin_get_winsize(int* lines, int* cols) {
     struct winsize ws;
 
     if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == FAILURE || ws.ws_col == 0) {
         // hard way to get all terminals screen size, moving the cursor to the bottom-right corner
         if (write(STDOUT_FILENO, "\x1b[999C\x1b[999B", 12) != 12) {
-            return get_cursor_pos(lines, cols);
+            return edzin_get_cursor_pos(lines, cols);
         }
 
         edzin_read_key();
@@ -166,24 +127,6 @@ get_winsize(int* lines, int* cols) {
     *lines = ws.ws_row;
 
     return EXIT_SUCCESS;
-}
-
-void
-buf_append(edzin_append_buf_t* buf, const char* s, int len) {
-    char* new = realloc(buf->buf, buf->len + len);
-
-    if (new == NULL) {
-        return;
-    }
-
-    memcpy(&new[buf->len], s, len);
-    buf->buf = new;
-    buf->len += len;
-}
-
-void
-buf_free(edzin_append_buf_t* buf) {
-    free(buf->buf);
 }
 
 int
@@ -256,6 +199,21 @@ edzin_read_key() {
     return c;
 }
 
+int
+edzin_transform_x_to_rx(edzin_line_t* line, int chars_x) {
+    int render_x = 0;
+
+    for (int i = 0; i < chars_x; i++) {
+        if (line->chars[i] == 0x09) {
+            render_x += (TAB_STOP_SIZE - 1) - (render_x % TAB_STOP_SIZE);
+        }
+
+        render_x++;
+    }
+
+    return render_x;
+}
+
 void
 edzin_append_line(char* s, size_t len) {
     E.line = realloc(E.line, sizeof(edzin_line_t) * (E.nlines + 1));
@@ -270,6 +228,107 @@ edzin_append_line(char* s, size_t len) {
     E.line[at].render = NULL;
     edzin_update_line(&E.line[at]);
     E.nlines++;
+}
+
+void
+edzin_backspace_char() {
+    edzin_line_t* line = &E.line[E.cursor.y];
+
+    if (E.cursor.x > 0) {
+        edzin_line_delete_char(line, E.cursor.x - 1);
+        E.cursor.x--;
+    }
+
+#ifdef UO_ENABLE_DELETE_LINE_JOIN
+    if (E.cursor.y > 0) {
+        edzin_line_t* prev_line = &E.line[E.cursor.y - 1];
+
+        E.cursor.x = prev_line->size + line->size;
+        edzin_line_append_str(prev_line, line->chars, line->size);
+        edzin_delete_line(E.cursor.y);
+        E.cursor.y--;
+    }
+#endif
+}
+
+void
+edzin_buf_append(edzin_append_buf_t* buf, const char* s, int len) {
+    char* new = realloc(buf->buf, buf->len + len);
+
+    if (new == NULL) {
+        return;
+    }
+
+    memcpy(&new[buf->len], s, len);
+    buf->buf = new;
+    buf->len += len;
+}
+
+void
+edzin_buf_free(edzin_append_buf_t* buf) {
+    free(buf->buf);
+}
+
+void
+edzin_clean_up() {
+    if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &E.TERM_MODE) == FAILURE) {
+        edzin_die("tcsetattr");
+    }
+
+    for (int i = 0; i < E.nlines; i++) {
+        free(E.line[i].chars);
+        free(E.line[i].render);
+    }
+
+    for (int i = 0; i < E.nfiles; i++) {
+        free(E.files[i].filename);
+    }
+
+    free(E.files);
+}
+
+void
+edzin_delete_char() {
+    if (E.cursor.y == E.nlines) {
+        return;
+    }
+
+    if (E.cursor.x == 0 && E.cursor.y == 0) {
+        return;
+    }
+
+    edzin_line_t* line = &E.line[E.cursor.y];
+
+    if (E.cursor.x > 0 && E.cursor.x < *(&E.line[E.cursor.y].rsize)) {
+        edzin_mv_cursor(ARROW_RIGHT);
+        edzin_line_delete_char(line, E.cursor.x - 1);
+        E.cursor.x--;
+    }
+
+#ifdef UO_ENABLE_DELETE_LINE_JOIN
+    if (E.cursor.y + 1 < E.nlines) {
+        edzin_line_t* next_line = &E.line[E.cursor.y + 1];
+
+        E.cursor.x = line->size + next_line->size;
+        edzin_line_append_str(line, next_line->chars, next_line->size);
+        edzin_delete_line(E.cursor.y + 1);
+    }
+#endif
+}
+
+void
+edzin_delete_line(int at) {
+    if (at < 0 || at >= E.nlines) {
+        return;
+    }
+
+    edzin_free_line(&E.line[at]);
+    memmove(&E.line[at], &E.line[at - 1], sizeof(edzin_line_t) * (E.nlines - at - 1));
+    E.nlines--;
+
+    if (E.files != NULL) {
+        E.files[0].state = MODIFIED;
+    }
 }
 
 void
@@ -299,17 +358,17 @@ edzin_draw_lines(edzin_append_buf_t* buf) {
                 int padding = (E.screen_props.cols - greatings_len) / 2;
 
                 if (padding) {
-                    buf_append(buf, "~", 1);
+                    edzin_buf_append(buf, "~", 1);
                     padding--;
                 }
 
                 while (padding--) {
-                    buf_append(buf, " ", 1);
+                    edzin_buf_append(buf, " ", 1);
                 }
 
-                buf_append(buf, greatings_msg, greatings_len);
+                edzin_buf_append(buf, greatings_msg, greatings_len);
             } else {
-                buf_append(buf, "~", 1);
+                edzin_buf_append(buf, "~", 1);
             }
         } else {
             int len = E.line[file_line].rsize - E.scroll.x_offset;
@@ -322,12 +381,47 @@ edzin_draw_lines(edzin_append_buf_t* buf) {
                 len = E.screen_props.cols;
             }
 
-            buf_append(buf, &E.line[file_line].render[E.scroll.x_offset], len);
+            edzin_buf_append(buf, &E.line[file_line].render[E.scroll.x_offset], len);
         }
 
-        buf_append(buf, "\x1b[K", 3);
-        buf_append(buf, "\r\n", 2);
+        edzin_buf_append(buf, "\x1b[K", 3);
+        edzin_buf_append(buf, "\r\n", 2);
     }
+}
+
+void
+edzin_enable_raw_mode() {
+    if (tcgetattr(STDIN_FILENO, &E.TERM_MODE) == FAILURE) {
+        edzin_die("tcgetattr");
+    }
+
+    atexit(edzin_clean_up);
+    struct termios term_raw_mode = E.TERM_MODE;
+    term_raw_mode.c_cflag |= (/*set chars size (CS) to 8 bits per byte=*/CS8);
+    term_raw_mode.c_oflag = ~(/*turn off output processing (\n|\r\n)=*/OPOST);
+    term_raw_mode.c_iflag = ~(
+        /*disable ctrl+(s|q)=*/IXON |
+        /*fix ctrl+m=*/ICRNL |
+        /*disable breaking signal e.g: ctrl+c=*/BRKINT |
+        /*enable parity checking=*/INPCK |
+        /*8th bith will be stripped, flipped to 0=*/ISTRIP);
+    term_raw_mode.c_lflag = ~(
+        /*disable echoing=*/ECHO |
+        /*disable canonical mode=*/ICANON |
+        /*disable ctrl+(c|z)=*/ISIG |
+        /*disable ctrl+v=*/IEXTEN);
+    term_raw_mode.c_cc[VMIN] = 0;
+    term_raw_mode.c_cc[VTIME] = 1;
+
+    if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &term_raw_mode) == FAILURE) {
+        edzin_die("tcsetattr");
+    }
+}
+
+void
+edzin_free_line(edzin_line_t* line) {
+    free(line->render);
+    free(line->chars);
 }
 
 void
@@ -344,11 +438,66 @@ edzin_init() {
     E.status.msg[0] = '\0';
     E.status.msg_time = 0;
 
-    if (get_winsize(&E.screen_props.lines, &E.screen_props.cols) == FAILURE) {
+    if (edzin_get_winsize(&E.screen_props.lines, &E.screen_props.cols) == FAILURE) {
         edzin_die("get_winsize");
     }
 
     E.screen_props.lines -= 2;
+}
+
+void
+edzin_insert_char(int c) {
+    if (E.cursor.y == E.nlines) {
+        edzin_append_line("", 0);
+    }
+
+    edzin_line_insert_char(&E.line[E.cursor.y], E.cursor.x, c);
+    E.cursor.x++;
+
+    if (E.files != NULL) {
+        E.files[0].state = MODIFIED;
+    }
+}
+
+void
+edzin_line_append_str(edzin_line_t* line, char* s, size_t len) {
+    line->chars = realloc(line->chars, line->size + len + 1);
+    memcpy(&line->chars[line->size], s, len);
+    line->size += len;
+    line->chars[line->size] = '\0';
+    edzin_update_line(line);
+
+    if (E.files != NULL) {
+        E.files[0].state = MODIFIED;
+    }
+}
+
+void
+edzin_line_delete_char(edzin_line_t* line, int at) {
+    if (at < 0 && at >= line->size) {
+        return;
+    }
+
+    memmove(&line->chars[at], &line->chars[at + 1], line->size - at);
+    line->size--;
+    edzin_update_line(line);
+
+    if (E.files != NULL) {
+        E.files[0].state = MODIFIED;
+    }
+}
+
+void
+edzin_line_insert_char(edzin_line_t* line, int at, int c) {
+    if (at < 0 || at > line->size) {
+        at = line->size;
+    }
+
+    line->chars = realloc(line->chars, line->size + 2);
+    memmove(&line->chars[at + 1], &line->chars[at], line->size - at + 1);
+    line->size++;
+    line->chars[at] = c;
+    edzin_update_line(line);
 }
 
 void
@@ -482,8 +631,8 @@ edzin_refresh_screen() {
 
     edzin_append_buf_t buf = APPEND_BUF_INIT;
 
-    buf_append(&buf, "\x1b[?25l", 6);  // hide cursor before rendering
-    buf_append(&buf, "\x1b[H", 3);  // vt100 escape sequence to go to line 1, col 1
+    edzin_buf_append(&buf, "\x1b[?25l", 6);  // hide cursor before rendering
+    edzin_buf_append(&buf, "\x1b[H", 3);  // vt100 escape sequence to go to line 1, col 1
     edzin_draw_lines(&buf);
     edzin_draw_statusbar(&E, &buf);
     edzin_draw_msgbar(&E, &buf);
@@ -495,10 +644,37 @@ edzin_refresh_screen() {
              "\x1b[%d;%dH",
              (E.cursor.y - E.scroll.y_offset) + 1,
              (E.cursor.rx - E.scroll.x_offset) + 1);
-    buf_append(&buf, init_buf, strlen(init_buf));
-    buf_append(&buf, "\x1b[?25h", 6);  // show cursor after rendering
+    edzin_buf_append(&buf, init_buf, strlen(init_buf));
+    edzin_buf_append(&buf, "\x1b[?25h", 6);  // show cursor after rendering
     write(STDOUT_FILENO, buf.buf, buf.len);
-    buf_free(&buf);
+    edzin_buf_free(&buf);
+}
+
+void
+edzin_save() {
+    if (E.files[0].filename == NULL) {
+        edzin_set_status_msg("WARN: file doesn't have a name");
+        return;
+    }
+
+    int len;
+    char* buf = edzin_lines_to_str(&len);
+    int fd = open(E.files[0].filename, O_RDWR | O_CREAT, 0644);
+
+    if (fd != FAILURE) {
+        if (ftruncate(fd, len) != FAILURE && write(fd, buf, len) != FAILURE) {
+            close(fd);
+            free(buf);
+            edzin_set_status_msg("%d bytes written to disk", len);
+            E.files[0].state = UNMODIFIED;
+            return;
+        }
+
+        close(fd);
+    }
+
+    free(buf);
+    edzin_set_status_msg("can't save .. i/o operation error: %s", strerror(errno));
 }
 
 void
@@ -519,6 +695,17 @@ edzin_scroll() {
         E.scroll.x_offset = E.cursor.rx - E.screen_props.cols + 1;
     }
 }
+
+void
+edzin_set_status_msg(const char* fmt, ...) {
+    va_list ap;
+
+    va_start(ap, fmt);
+    vsnprintf(E.status.msg, sizeof(E.status.msg), fmt, ap);
+    va_end(ap);
+    E.status.msg_time = time(NULL);
+}
+
 
 void
 edzin_update_line(edzin_line_t* line) {
@@ -549,190 +736,4 @@ edzin_update_line(edzin_line_t* line) {
 
     line->render[idx] = 0x00;
     line->rsize = idx;
-}
-
-void
-edzin_set_status_msg(const char* fmt, ...) {
-    va_list ap;
-
-    va_start(ap, fmt);
-    vsnprintf(E.status.msg, sizeof(E.status.msg), fmt, ap);
-    va_end(ap);
-    E.status.msg_time = time(NULL);
-}
-
-void
-edzin_line_insert_char(edzin_line_t* line, int at, int c) {
-    if (at < 0 || at > line->size) {
-        at = line->size;
-    }
-
-    line->chars = realloc(line->chars, line->size + 2);
-    memmove(&line->chars[at + 1], &line->chars[at], line->size - at + 1);
-    line->size++;
-    line->chars[at] = c;
-    edzin_update_line(line);
-}
-
-void
-edzin_insert_char(int c) {
-    if (E.cursor.y == E.nlines) {
-        edzin_append_line("", 0);
-    }
-
-    edzin_line_insert_char(&E.line[E.cursor.y], E.cursor.x, c);
-    E.cursor.x++;
-
-    if (E.files != NULL) {
-        E.files[0].state = MODIFIED;
-    }
-}
-
-char*
-edzin_lines_to_string(int* buflen) {
-    int totallen = 0;
-
-    for (int i = 0; i < E.nlines; i++) {
-        totallen += E.line[i].size + 1;
-    }
-
-    *buflen = totallen;
-
-    char* buf = malloc(totallen);
-    char* p = buf;
-
-    for (int i = 0; i < E.nlines; i++) {
-        memcpy(p, E.line[i].chars, E.line[i].size);
-        p += E.line[i].size;
-        *p = '\n';
-        p++;
-    }
-
-    return buf;
-}
-
-void
-edzin_save() {
-    if (E.files[0].filename == NULL) {
-        edzin_set_status_msg("WARN: file doesn't have a name");
-        return;
-    }
-
-    int len;
-    char* buf = edzin_lines_to_string(&len);
-    int fd = open(E.files[0].filename, O_RDWR | O_CREAT, 0644);
-
-    if (fd != FAILURE) {
-        if (ftruncate(fd, len) != FAILURE && write(fd, buf, len) != FAILURE) {
-            close(fd);
-            free(buf);
-            edzin_set_status_msg("%d bytes written to disk", len);
-            E.files[0].state = UNMODIFIED;
-            return;
-        }
-
-        close(fd);
-    }
-
-    free(buf);
-    edzin_set_status_msg("can't save .. i/o operation error: %s", strerror(errno));
-}
-
-void
-edzin_line_delete_char(edzin_line_t* line, int at) {
-    if (at < 0 && at >= line->size) {
-        return;
-    }
-
-    memmove(&line->chars[at], &line->chars[at + 1], line->size - at);
-    line->size--;
-    edzin_update_line(line);
-
-    if (E.files != NULL) {
-        E.files[0].state = MODIFIED;
-    }
-}
-
-void
-edzin_backspace_char() {
-    edzin_line_t* line = &E.line[E.cursor.y];
-
-    if (E.cursor.x > 0) {
-        edzin_line_delete_char(line, E.cursor.x - 1);
-        E.cursor.x--;
-    }
-
-#ifdef UO_ENABLE_DELETE_LINE_JOIN
-    if (E.cursor.y > 0) {
-        edzin_line_t* prev_line = &E.line[E.cursor.y - 1];
-
-        E.cursor.x = prev_line->size + line->size;
-        edzin_line_append_str(prev_line, line->chars, line->size);
-        edzin_delete_line(E.cursor.y);
-        E.cursor.y--;
-    }
-#endif
-}
-
-void
-edzin_delete_char() {
-    if (E.cursor.y == E.nlines) {
-        return;
-    }
-
-    if (E.cursor.x == 0 && E.cursor.y == 0) {
-        return;
-    }
-
-    edzin_line_t* line = &E.line[E.cursor.y];
-
-    if (E.cursor.x > 0 && E.cursor.x < *(&E.line[E.cursor.y].rsize)) {
-        edzin_mv_cursor(ARROW_RIGHT);
-        edzin_line_delete_char(line, E.cursor.x - 1);
-        E.cursor.x--;
-    }
-
-#ifdef UO_ENABLE_DELETE_LINE_JOIN
-    if (E.cursor.y + 1 < E.nlines) {
-        edzin_line_t* next_line = &E.line[E.cursor.y + 1];
-
-        E.cursor.x = line->size + next_line->size;
-        edzin_line_append_str(line, next_line->chars, next_line->size);
-        edzin_delete_line(E.cursor.y + 1);
-    }
-#endif
-}
-
-void
-edzin_free_line(edzin_line_t* line) {
-    free(line->render);
-    free(line->chars);
-}
-
-void
-edzin_delete_line(int at) {
-    if (at < 0 || at >= E.nlines) {
-        return;
-    }
-
-    edzin_free_line(&E.line[at]);
-    memmove(&E.line[at], &E.line[at - 1], sizeof(edzin_line_t) * (E.nlines - at - 1));
-    E.nlines--;
-
-    if (E.files != NULL) {
-        E.files[0].state = MODIFIED;
-    }
-}
-
-void
-edzin_line_append_str(edzin_line_t* line, char* s, size_t len) {
-    line->chars = realloc(line->chars, line->size + len + 1);
-    memcpy(&line->chars[line->size], s, len);
-    line->size += len;
-    line->chars[line->size] = '\0';
-    edzin_update_line(line);
-
-    if (E.files != NULL) {
-        E.files[0].state = MODIFIED;
-    }
 }

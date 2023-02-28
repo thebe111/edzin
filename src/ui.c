@@ -4,7 +4,7 @@
 
 void
 edzin_draw_statusbar(edzin_config_t* E, edzin_append_buf_t* buf) {
-    buf_append(buf, "\x1b[7m", 4);
+    edzin_buf_append(buf, "\x1b[7m", 4);
 
     char* f = NULL;
 
@@ -36,25 +36,25 @@ edzin_draw_statusbar(edzin_config_t* E, edzin_append_buf_t* buf) {
         len = E->screen_props.cols;
     }
 
-    buf_append(buf, status, len);
+    edzin_buf_append(buf, status, len);
 
     while (len < E->screen_props.cols) {
         if (E->screen_props.cols - len == rlen) {
-            buf_append(buf, rstatus, rlen);
+            edzin_buf_append(buf, rstatus, rlen);
             break;
         } else {
-            buf_append(buf, "\x20", 1);
+            edzin_buf_append(buf, "\x20", 1);
             len++;
         }
     }
 
-    buf_append(buf, "\x1b[m", 3);
-    buf_append(buf, "\r\n", 2);
+    edzin_buf_append(buf, "\x1b[m", 3);
+    edzin_buf_append(buf, "\r\n", 2);
 }
 
 void
 edzin_draw_msgbar(edzin_config_t* E, edzin_append_buf_t* buf) {
-    buf_append(buf, "\x1b[K", 3);
+    edzin_buf_append(buf, "\x1b[K", 3);
 
     int msglen = strlen(E->status.msg);
 
@@ -63,7 +63,7 @@ edzin_draw_msgbar(edzin_config_t* E, edzin_append_buf_t* buf) {
     }
 
     if (msglen && time(NULL) - E->status.msg_time < 5) {
-        buf_append(buf, E->status.msg, msglen);
+        edzin_buf_append(buf, E->status.msg, msglen);
     }
 }
 
