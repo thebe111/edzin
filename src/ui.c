@@ -19,7 +19,15 @@ edzin_draw_statusbar(edzin_config_t* E, edzin_append_buf_t* buf) {
     }
 
     char status[80], rstatus[80];
-    int len = snprintf(status, sizeof(status), "%.20s [%s]", f, edzin_file_state_to_str(E->files[0].state));
+    char* rstate;
+
+    if (E->files != NULL) {
+        rstate = edzin_file_state_to_str(E->files[0].state);
+    } else {
+        rstate = "new";
+    }
+
+    int len = snprintf(status, sizeof(status), "%.20s [%s]", f, rstate);
     int file_percent = (E->cursor.y * 100) / (E->nlines > 0 ? E->nlines : 1);
     int rfile_percent = file_percent > 100 ? 100 : file_percent;
     int rlen = snprintf(rstatus, sizeof(rstatus), "%d:%d\x20%d%%", E->cursor.y + 1, E->cursor.x + 1, rfile_percent);

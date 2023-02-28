@@ -582,7 +582,10 @@ edzin_insert_char(int c) {
 
     edzin_line_insert_char(&E.line[E.cursor.y], E.cursor.x, c);
     E.cursor.x++;
-    E.files[0].state = MODIFIED;
+
+    if (E.files != NULL) {
+        E.files[0].state = MODIFIED;
+    }
 }
 
 char*
@@ -644,7 +647,10 @@ edzin_line_delete_char(edzin_line_t* line, int at) {
     memmove(&line->chars[at], &line->chars[at + 1], line->size - at);
     line->size--;
     edzin_update_line(line);
-    E.files[0].state = MODIFIED;
+
+    if (E.files != NULL) {
+        E.files[0].state = MODIFIED;
+    }
 }
 
 void
@@ -712,7 +718,10 @@ edzin_delete_line(int at) {
     edzin_free_line(&E.line[at]);
     memmove(&E.line[at], &E.line[at - 1], sizeof(edzin_line_t) * (E.nlines - at - 1));
     E.nlines--;
-    E.files[0].state = MODIFIED;
+
+    if (E.files != NULL) {
+        E.files[0].state = MODIFIED;
+    }
 }
 
 void
@@ -722,5 +731,8 @@ edzin_line_append_str(edzin_line_t* line, char* s, size_t len) {
     line->size += len;
     line->chars[line->size] = '\0';
     edzin_update_line(line);
-    E.files[0].state = MODIFIED;
+
+    if (E.files != NULL) {
+        E.files[0].state = MODIFIED;
+    }
 }
