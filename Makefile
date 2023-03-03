@@ -1,23 +1,14 @@
 BIN = build/edzin
-CFLAGS = \
-		 -Wall \
-		 -Wextra \
-		 -Werror \
-		 -pedantic \
-		 -std=c99
-TARGETS = \
-		  src/main.c \
-		  src/handlers.c \
-		  src/ui.c 
-OPTIONS = \
-		  -DUO_ENABLE_ARROW_KEYS \
+CFLAGS =  -Wall -Wextra -Werror -pedantic -std=c99
+TARGETS = src/main.c src/handlers.c src/ui.c
+OPTIONS = -DUO_ENABLE_ARROW_KEYS \
 		  -DUO_CONTINUE_SCROLL_ON_LEFT \
 		  -DUO_CONTINUE_SCROLL_ON_RIGHT \
 		  -DUO_ENABLE_DELETE_LINE_JOIN
 
 .PHONY:
 build: 
-	$(CC) $(TARGETS) -o $(BIN) $(CFLAGS)
+	$(CC) $(TARGETS) -o $(BIN) $(CFLAGS) -g
 
 .PHONY:
 uobuild: 

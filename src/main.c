@@ -11,9 +11,9 @@
 #endif
 
 #include "edzin/main.h"
+#include "edzin/ascii.h"
 #include "edzin/handlers.h"
 #include "edzin/ui.h"
-#include <assert.h>
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -204,7 +204,7 @@ edzin_transform_x_to_rx(edzin_line_t* line, int chars_x) {
     int render_x = 0;
 
     for (int i = 0; i < chars_x; i++) {
-        if (line->chars[i] == 0x09) {
+        if (line->chars[i] == ASCII_TAB) {
             render_x += (TAB_STOP_SIZE - 1) - (render_x % TAB_STOP_SIZE);
         }
 
@@ -215,11 +215,13 @@ edzin_transform_x_to_rx(edzin_line_t* line, int chars_x) {
 }
 
 void
-edzin_append_line(char* s, size_t len) {
+edzin_insert_line(int at, char* s, size_t len) {
+    if (at < 0 || at > E.nlines) {
+        return;
+    }
+
     E.line = realloc(E.line, sizeof(edzin_line_t) * (E.nlines + 1));
-
-    int at = E.nlines;
-
+    memmove(&E.line[at + 1], &E.line[at], sizeof(edzin_line_t) * (E.nlines - at));
     E.line[at].size = len;
     E.line[at].chars = malloc(len + 1);
     memcpy(E.line[at].chars, s, len);
@@ -228,6 +230,24 @@ edzin_append_line(char* s, size_t len) {
     E.line[at].render = NULL;
     edzin_update_line(&E.line[at]);
     E.nlines++;
+}
+
+void
+edzin_insert_new_line() {
+    if (E.cursor.x == 0) {
+        edzin_insert_line(E.cursor.y, "", 0);
+    } else {
+        edzin_line_t* line = &E.line[E.cursor.y];
+
+        edzin_insert_line(E.cursor.y + 1, &line->chars[E.cursor.x], line->size - E.cursor.x);
+        line = &E.line[E.cursor.y];
+        line->size = E.cursor.x;
+        line->chars[line->size] = '\0';
+        edzin_update_line(line);
+    }
+
+    E.cursor.y++;
+    E.cursor.x = 0;
 }
 
 void
@@ -448,7 +468,7 @@ edzin_init() {
 void
 edzin_insert_char(int c) {
     if (E.cursor.y == E.nlines) {
-        edzin_append_line("", 0);
+        edzin_insert_line(E.nlines, "", 0);
     }
 
     edzin_line_insert_char(&E.line[E.cursor.y], E.cursor.x, c);
@@ -558,7 +578,7 @@ edzin_open(char* filename) {
             linelen--;
         }
 
-        edzin_append_line(line, linelen);
+        edzin_insert_line(E.nlines, line, linelen);
     }
 
     free(line);
@@ -571,6 +591,7 @@ edzin_process_keypress() {
 
     switch (c) {
         case '\r':
+            edzin_insert_new_line();
             break;
         case CTRL_KEY('q'):
             /* if (E.files[0].state == MODIFIED) { */
@@ -706,13 +727,12 @@ edzin_set_status_msg(const char* fmt, ...) {
     E.status.msg_time = time(NULL);
 }
 
-
 void
 edzin_update_line(edzin_line_t* line) {
     int ntabs = 0;
 
     for (int i = 0; i < line->size; i++) {
-        if (line->chars[i] == 0x09) {
+        if (line->chars[i] == ASCII_TAB) {
             ntabs++;
         }
     }
@@ -723,11 +743,11 @@ edzin_update_line(edzin_line_t* line) {
     int idx = 0;
 
     for (int i = 0; i < line->size; i++) {
-        if (line->chars[i] == 0x09) {
-            line->render[idx++] = 0x20;
+        if (line->chars[i] == ASCII_TAB) {
+            line->render[idx++] = ASCII_SPACE;
 
             while (idx % TAB_STOP_SIZE != 0) {
-                line->render[idx++] = 0x20;
+                line->render[idx++] = ASCII_SPACE;
             }
         } else {
             line->render[idx++] = line->chars[i];
