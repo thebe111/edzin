@@ -40,7 +40,7 @@ main(int argc, char** argv) {
         edzin_open(/*filename=*/argv[1]);
     }
 
-    edzin_set_status_msg("HELP: Ctrl+S = save | Ctrl+Q = quit");
+    edzin_set_status_msg("HELP: Ctrl+S = save | Ctrl+Q = quit | Ctrl+F = search");
 
     while (true) {
         edzin_refresh_screen();
@@ -238,6 +238,26 @@ edzin_read_key() {
     }
 
     return c;
+}
+
+int
+edzin_transform_rx_to_x(edzin_line_t* line, int chars_rx) {
+    int x;
+    int cur_rx = 0;
+
+    for (x = 0; x < line->size; x++) {
+        if (line->chars[x] == ASCII_TAB) {
+            cur_rx += (TAB_STOP_SIZE - 1) - (cur_rx % TAB_STOP_SIZE);
+        }
+
+        cur_rx++;
+
+        if (cur_rx > chars_rx) {
+            return x;
+        }
+    }
+
+    return x;
 }
 
 int
@@ -480,6 +500,29 @@ edzin_enable_raw_mode() {
 }
 
 void
+edzin_find() {
+    char* query = edzin_prompt("query: %s");
+
+    if (query == NULL) {
+        return;
+    }
+
+    for (int i = 0; i < E.nlines; i++) {
+        edzin_line_t* line = &E.line[i];
+        char* match = strstr(line->render, query);
+
+        if (match) {
+            E.cursor.y = i;
+            E.cursor.x = edzin_transform_rx_to_x(line, match - line->render);
+            E.scroll.y_offset = E.nlines;
+            break;
+        }
+    }
+
+    free(query);
+}
+
+void
 edzin_free_line(edzin_line_t* line) {
     free(line->render);
     free(line->chars);
@@ -645,6 +688,9 @@ edzin_process_keypress() {
             break;
         case CTRL_KEY('s'):
             edzin_save();
+            break;
+        case CTRL_KEY('f'):
+            edzin_find();
             break;
         case 'G':
             E.cursor.y = E.nlines;
