@@ -85,6 +85,7 @@ typedef struct {
 } edzin_append_buf_t;
 
 char* edzin_lines_to_str(int* buflen);
+char* edzin_prompt(char* prompt);
 int edzin_get_cursor_pos();
 int edzin_get_winsize();
 int edzin_read_key();

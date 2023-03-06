@@ -74,6 +74,47 @@ edzin_lines_to_str(int* buflen) {
     return buf;
 }
 
+char*
+edzin_prompt(char* prompt) {
+    size_t bufsize = 128;
+    char* buf = malloc(bufsize);
+    size_t buflen = 0;
+
+    buf[0] = '\0';
+
+    while (true) {
+        edzin_set_status_msg(prompt, buf);
+        edzin_refresh_screen();
+
+        int c = edzin_read_key();
+
+        if (c == DELETE_KEY || c == CTRL_KEY('h') || c == BACKSPACE) {
+            if (buflen != 0) {
+                buf[--buflen] = '\0';
+            }
+        } else if (c == ESCAPE) {
+            edzin_set_status_msg("");
+            free(buf);
+
+            return NULL;
+        } else if (c == '\r') {
+            if (buflen != 0) {
+                edzin_set_status_msg("");
+
+                return buf;
+            }
+        } else if (!iscntrl(c) && c < 128) {
+            if (buflen == bufsize - 1) {
+                bufsize *= 2;
+                buf = realloc(buf, bufsize);
+            }
+
+            buf[buflen++] = c;
+            buf[buflen] = '\0';
+        }
+    }
+}
+
 int
 edzin_get_cursor_pos(int* lines, int* cols) {
     char buf[32];
@@ -673,9 +714,15 @@ edzin_refresh_screen() {
 
 void
 edzin_save() {
-    if (E.files[0].filename == NULL) {
-        edzin_set_status_msg("WARN: file doesn't have a name");
-        return;
+    if (E.files == NULL) {
+        E.files = malloc(sizeof(edzin_file_t));
+        E.files[0].filename = edzin_prompt("save as: %s");
+
+        if (E.files[0].filename == NULL) {
+            edzin_set_status_msg("save aborted");
+
+            return;
+        }
     }
 
     int len;
