@@ -4,7 +4,7 @@
 
 void
 edzin_draw_statusbar(edzin_config_t* E, edzin_append_buf_t* buf) {
-    edzin_buf_append(buf, "\x1b[7m", 4);
+    edzin_buf_append(buf, "\x1b[7m", 4);  // paint the statusbar with white color
 
     char* f = NULL;
 

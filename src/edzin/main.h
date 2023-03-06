@@ -85,7 +85,7 @@ typedef struct {
 } edzin_append_buf_t;
 
 char* edzin_lines_to_str(int* buflen);
-char* edzin_prompt(char* prompt);
+char* edzin_prompt(char* prompt, void (*cb)(char* query, int c));
 int edzin_get_cursor_pos();
 int edzin_get_winsize();
 int edzin_read_key();
@@ -101,6 +101,7 @@ void edzin_die(const char* msg);
 void edzin_draw_lines(edzin_append_buf_t* buf);
 void edzin_enable_raw_mode();
 void edzin_find();
+void edzin_find_callback(char* query, int c);
 void edzin_free_line(edzin_line_t* line);
 void edzin_init();
 void edzin_insert_char(int c);
@@ -112,7 +113,8 @@ void edzin_line_insert_char(edzin_line_t* line, int at, int c);
 void edzin_mv_cursor(int key);
 void edzin_open(char* filename);
 void edzin_process_keypress();
-void edzin_refresh_screen();
+void edzin_refresh_screen(bool block_cursor);
+char* edzin_render_cursor_on_pos(int line, int col);
 void edzin_save();
 void edzin_scroll();
 void edzin_set_status_msg(const char* fmt, ...);

@@ -43,7 +43,7 @@ main(int argc, char** argv) {
     edzin_set_status_msg("HELP: Ctrl+S = save | Ctrl+Q = quit | Ctrl+F = search");
 
     while (true) {
-        edzin_refresh_screen();
+        edzin_refresh_screen(false);
         edzin_process_keypress();
     }
 
@@ -75,16 +75,18 @@ edzin_lines_to_str(int* buflen) {
 }
 
 char*
-edzin_prompt(char* prompt) {
+edzin_prompt(char* prompt, void (*cb)(char* query, int c)) {
     size_t bufsize = 128;
     char* buf = malloc(bufsize);
     size_t buflen = 0;
+    bool block_cursor = true;
 
     buf[0] = '\0';
 
     while (true) {
         edzin_set_status_msg(prompt, buf);
-        edzin_refresh_screen();
+        E.cursor.x = buflen + strlen(prompt) - 2;
+        edzin_refresh_screen(block_cursor);
 
         int c = edzin_read_key();
 
@@ -93,13 +95,25 @@ edzin_prompt(char* prompt) {
                 buf[--buflen] = '\0';
             }
         } else if (c == ESCAPE) {
+            block_cursor = false;
             edzin_set_status_msg("");
+
+            if (cb) {
+                cb(buf, c);
+            }
+
             free(buf);
 
             return NULL;
         } else if (c == '\r') {
+            block_cursor = false;
+
             if (buflen != 0) {
                 edzin_set_status_msg("");
+
+                if (cb) {
+                    cb(buf, c);
+                }
 
                 return buf;
             }
@@ -111,6 +125,10 @@ edzin_prompt(char* prompt) {
 
             buf[buflen++] = c;
             buf[buflen] = '\0';
+        }
+
+        if (cb) {
+            cb(buf, c);
         }
     }
 }
@@ -414,8 +432,8 @@ edzin_delete_line(int at) {
 
 void
 edzin_die(const char* msg) {
-    write(STDOUT_FILENO, "\x1b[2J", 4);
-    write(STDOUT_FILENO, "\x1b[H", 3);
+    write(STDOUT_FILENO, "\x1b[2J", 4);  // clear entire screen
+    write(STDOUT_FILENO, "\x1b[H", 3);  // move cursor to the 0,0 position
     perror(msg);
     exit(EXIT_FAILURE);
 }
@@ -465,7 +483,7 @@ edzin_draw_lines(edzin_append_buf_t* buf) {
             edzin_buf_append(buf, &E.line[file_line].render[E.scroll.x_offset], len);
         }
 
-        edzin_buf_append(buf, "\x1b[K", 3);
+        edzin_buf_append(buf, "\x1b[K", 3);  // clear the current line before draw
         edzin_buf_append(buf, "\r\n", 2);
     }
 }
@@ -501,9 +519,33 @@ edzin_enable_raw_mode() {
 
 void
 edzin_find() {
-    char* query = edzin_prompt("query: %s");
+    edzin_cursor_t bkp_cursor = {
+        .x = E.cursor.x,
+        .y = E.cursor.y,
+    };
 
-    if (query == NULL) {
+    edzin_scroll_t bkp_scroll = {
+        .x_offset = E.scroll.x_offset,
+        .y_offset = E.scroll.y_offset,
+    };
+
+    char* query = edzin_prompt("query: %s", edzin_find_callback);
+
+    if (query) {
+        free(query);
+
+        return;
+    }
+
+    E.cursor.x = bkp_cursor.x;
+    E.cursor.y = bkp_cursor.y;
+    E.scroll.x_offset = bkp_scroll.x_offset;
+    E.scroll.y_offset = bkp_scroll.y_offset;
+}
+
+void
+edzin_find_callback(char* query, int c) {
+    if (c == ESCAPE) {
         return;
     }
 
@@ -518,8 +560,6 @@ edzin_find() {
             break;
         }
     }
-
-    free(query);
 }
 
 void
@@ -530,17 +570,23 @@ edzin_free_line(edzin_line_t* line) {
 
 void
 edzin_init() {
-    E.cursor.x = 0;
-    E.cursor.y = 0;
-    E.cursor.rx = 0;
-    E.scroll.x_offset = 0;
-    E.scroll.y_offset = 0;
     E.nlines = 0;
     E.line = NULL;
     E.nfiles = 0;
     E.files = NULL;
-    E.status.msg[0] = '\0';
-    E.status.msg_time = 0;
+    E.cursor = (edzin_cursor_t) {
+        .x = 0,
+        .y = 0,
+        .rx = 0,
+    };
+    E.scroll = (edzin_scroll_t) {
+        .x_offset = 0,
+        .y_offset = 0,
+    };
+    E.status = (edzin_status_t) {
+        .msg = {'\0'},
+        .msg_time = 0,
+    };
 
     if (edzin_get_winsize(&E.screen_props.lines, &E.screen_props.cols) == FAILURE) {
         edzin_die("get_winsize");
@@ -734,7 +780,7 @@ edzin_process_keypress() {
 }
 
 void
-edzin_refresh_screen() {
+edzin_refresh_screen(bool block_cursor) {
     edzin_scroll();
 
     edzin_append_buf_t buf = APPEND_BUF_INIT;
@@ -745,24 +791,40 @@ edzin_refresh_screen() {
     edzin_draw_statusbar(&E, &buf);
     edzin_draw_msgbar(&E, &buf);
 
-    char init_buf[32];
+    int line, col = 0;
+    char* init_buf = NULL;
 
-    snprintf(init_buf,
-             sizeof(init_buf),
-             "\x1b[%d;%dH",
-             (E.cursor.y - E.scroll.y_offset) + 1,
-             (E.cursor.rx - E.scroll.x_offset) + 1);
+    if (block_cursor) {
+        line = E.screen_props.lines + 2;
+        col = (E.cursor.rx - E.scroll.x_offset) + 1;
+    } else {
+        line = (E.cursor.y - E.scroll.y_offset) + 1;
+        col = (E.cursor.rx - E.scroll.x_offset) + 1;
+    }
+
+    init_buf = edzin_render_cursor_on_pos(line, col);
     edzin_buf_append(&buf, init_buf, strlen(init_buf));
     edzin_buf_append(&buf, "\x1b[?25h", 6);  // show cursor after rendering
     write(STDOUT_FILENO, buf.buf, buf.len);
+    free(init_buf);
     edzin_buf_free(&buf);
+}
+
+char*
+edzin_render_cursor_on_pos(int line, int col) {
+    const int BUF_SIZE = 32;
+    char* init_buf = malloc(sizeof(char) * BUF_SIZE);
+
+    snprintf(init_buf, BUF_SIZE, "\x1b[%d;%dH", line, col);
+
+    return init_buf;
 }
 
 void
 edzin_save() {
     if (E.files == NULL) {
         E.files = malloc(sizeof(edzin_file_t));
-        E.files[0].filename = edzin_prompt("save as: %s");
+        E.files[0].filename = edzin_prompt("save as: %s", NULL);
 
         if (E.files[0].filename == NULL) {
             edzin_set_status_msg("save aborted");
