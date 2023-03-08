@@ -1,24 +1,23 @@
 #ifndef EDZIN_MAIN_H
 #define EDZIN_MAIN_H
 
+#include "highlight.h"
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <termios.h>
 #include <time.h>
 
-#define EDZIN_VERSION "0.0.1"
-#define TAB_STOP_SIZE 4
-
-#define CTRL_KEY(key) ((key) &0x1f)
-#define ESCAPE '\x1b'
-
 #define FAILURE (-1)
-
+#define ESCAPE '\x1b'
+#define TAB_STOP_SIZE 4
+#define UNUSED(x) (void)(x)
+#define EDZIN_VERSION "0.0.1"
+#define CTRL_KEY(key) ((key) &0x1f)
 #define APPEND_BUF_INIT \
     { NULL, 0 }
 
-enum edzin_key {
+enum edzin_key_e {
     BACKSPACE = 127,
     ARROW_LEFT = 1000,
     ARROW_RIGHT,
@@ -32,10 +31,13 @@ enum edzin_key {
 };
 
 typedef struct {
+    int idx;
     int size;
     int rsize;  // render size
     char* chars;
     char* render;
+    unsigned char* highlight; // highlight char control buffer
+    bool in_comment; // flag that control if the current line is part of a comment
 } edzin_line_t;
 
 typedef struct {
@@ -54,11 +56,11 @@ typedef struct {
     int y_offset;
 } edzin_scroll_t;
 
-enum edzin_file_state { MODIFIED, UNMODIFIED };
+enum edzin_file_state_e { MODIFIED, UNMODIFIED };
 
 typedef struct {
     bool rendering;
-    enum edzin_file_state state;
+    enum edzin_file_state_e state;
     char* filename;
 } edzin_file_t;
 
@@ -77,6 +79,7 @@ typedef struct {
     edzin_line_t* line;
     edzin_file_t* files;
     edzin_status_t status;
+    edzin_syntax_t* syntax;
 } edzin_config_t;
 
 typedef struct {
@@ -84,11 +87,34 @@ typedef struct {
     int len;
 } edzin_append_buf_t;
 
+enum edzin_highlight_e {
+    HL_COMMENT,
+    HL_KEYTYPE,
+    HL_KEYWORD,
+    HL_MATCH,
+    HL_MLCOMMENT,
+    HL_NORMAL,
+    HL_NUMBER,
+    HL_STRING,
+};
+
+enum edzin_highlight_color_e {
+    HL_RED = 31,
+    HL_GREEN = 32,
+    HL_YELLOW = 33,
+    HL_BLUE = 34,
+    HL_MAGENTA = 35,
+    HL_CYAN = 36,
+    HL_WHITE = 37,
+};
+
 char* edzin_lines_to_str(int* buflen);
 char* edzin_prompt(char* prompt, void (*cb)(char* query, int c));
+char* edzin_render_cursor_on_pos(int line, int col);
 int edzin_get_cursor_pos();
 int edzin_get_winsize();
 int edzin_read_key();
+int edzin_syntax_to_color(int highlight);
 int edzin_transform_rx_to_x(edzin_line_t* line, int chars_rx);
 int edzin_transform_x_to_rx(edzin_line_t* line, int chars_x);
 void edzin_backspace_char();
@@ -114,10 +140,11 @@ void edzin_mv_cursor(int key);
 void edzin_open(char* filename);
 void edzin_process_keypress();
 void edzin_refresh_screen(bool block_cursor);
-char* edzin_render_cursor_on_pos(int line, int col);
 void edzin_save();
 void edzin_scroll();
+void edzin_select_syntax_highlight();
 void edzin_set_status_msg(const char* fmt, ...);
 void edzin_update_line(edzin_line_t* line);
+void edzin_update_syntax(edzin_line_t* line);
 
 #endif  // EDZIN_MAIN_H

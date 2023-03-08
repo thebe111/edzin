@@ -12,7 +12,10 @@
 
 #include "edzin/main.h"
 #include "edzin/ascii.h"
+#include "edzin/escseq.h"
 #include "edzin/handlers.h"
+#include "edzin/highlight.h"
+#include "edzin/lexer.h"
 #include "edzin/ui.h"
 #include <ctype.h>
 #include <errno.h>
@@ -24,6 +27,8 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
+
+static const char HELP[] = "HELP: Ctrl+S = save | Ctrl+Q = quit | Ctrl+F = search";
 
 /*
  * main editor config setup
@@ -40,7 +45,7 @@ main(int argc, char** argv) {
         edzin_open(/*filename=*/argv[1]);
     }
 
-    edzin_set_status_msg("HELP: Ctrl+S = save | Ctrl+Q = quit | Ctrl+F = search");
+    edzin_set_status_msg(HELP);
 
     while (true) {
         edzin_refresh_screen(false);
@@ -81,7 +86,7 @@ edzin_prompt(char* prompt, void (*cb)(char* query, int c)) {
     size_t buflen = 0;
     bool block_cursor = true;
 
-    buf[0] = '\0';
+    buf[0] = ASCII_NULL;
 
     while (true) {
         edzin_set_status_msg(prompt, buf);
@@ -92,7 +97,7 @@ edzin_prompt(char* prompt, void (*cb)(char* query, int c)) {
 
         if (c == DELETE_KEY || c == CTRL_KEY('h') || c == BACKSPACE) {
             if (buflen != 0) {
-                buf[--buflen] = '\0';
+                buf[--buflen] = ASCII_NULL;
             }
         } else if (c == ESCAPE) {
             block_cursor = false;
@@ -131,6 +136,16 @@ edzin_prompt(char* prompt, void (*cb)(char* query, int c)) {
             cb(buf, c);
         }
     }
+}
+
+char*
+edzin_render_cursor_on_pos(int line, int col) {
+    const int BUF_SIZE = 32;
+    char* init_buf = malloc(sizeof(char) * BUF_SIZE);
+
+    snprintf(init_buf, BUF_SIZE, ESCSEQ_MOVE_CURSOR, line, col);
+
+    return init_buf;
 }
 
 int
@@ -259,6 +274,27 @@ edzin_read_key() {
 }
 
 int
+edzin_syntax_to_color(int highlight) {
+    switch (highlight) {
+        case HL_KEYTYPE:
+            return HL_YELLOW;
+        case HL_KEYWORD:
+            return HL_GREEN;
+        case HL_COMMENT:
+        case HL_MLCOMMENT:
+            return HL_CYAN;
+        case HL_STRING:
+            return HL_MAGENTA;
+        case HL_NUMBER:
+            return HL_RED;
+        case HL_MATCH:
+            return HL_BLUE;
+        default:
+            return HL_WHITE;
+    }
+}
+
+int
 edzin_transform_rx_to_x(edzin_line_t* line, int chars_rx) {
     int x;
     int cur_rx = 0;
@@ -301,12 +337,20 @@ edzin_insert_line(int at, char* s, size_t len) {
 
     E.line = realloc(E.line, sizeof(edzin_line_t) * (E.nlines + 1));
     memmove(&E.line[at + 1], &E.line[at], sizeof(edzin_line_t) * (E.nlines - at));
+
+    for (int i = at + 1; i <= E.nlines; i++) {
+        E.line[i].idx++;
+    }
+
+    E.line[at].idx = at;
     E.line[at].size = len;
     E.line[at].chars = malloc(len + 1);
     memcpy(E.line[at].chars, s, len);
-    E.line[at].chars[len] = '\0';
+    E.line[at].chars[len] = ASCII_NULL;
     E.line[at].rsize = 0;
     E.line[at].render = NULL;
+    E.line[at].highlight = NULL;
+    E.line[at].in_comment = false;
     edzin_update_line(&E.line[at]);
     E.nlines++;
 }
@@ -321,7 +365,7 @@ edzin_insert_new_line() {
         edzin_insert_line(E.cursor.y + 1, &line->chars[E.cursor.x], line->size - E.cursor.x);
         line = &E.line[E.cursor.y];
         line->size = E.cursor.x;
-        line->chars[line->size] = '\0';
+        line->chars[line->size] = ASCII_NULL;
         edzin_update_line(line);
     }
 
@@ -423,6 +467,11 @@ edzin_delete_line(int at) {
 
     edzin_free_line(&E.line[at]);
     memmove(&E.line[at], &E.line[at - 1], sizeof(edzin_line_t) * (E.nlines - at - 1));
+
+    for (int i = at; i < E.nlines - 1; i++) {
+        E.line[i].idx--;
+    }
+
     E.nlines--;
 
     if (E.files != NULL) {
@@ -432,8 +481,8 @@ edzin_delete_line(int at) {
 
 void
 edzin_die(const char* msg) {
-    write(STDOUT_FILENO, "\x1b[2J", 4);  // clear entire screen
-    write(STDOUT_FILENO, "\x1b[H", 3);  // move cursor to the 0,0 position
+    write(STDOUT_FILENO, ESCSEQ_CLEAR_SCREEN, 4);
+    write(STDOUT_FILENO, ESCSEQ_RESET_CURSOR, 3);
     perror(msg);
     exit(EXIT_FAILURE);
 }
@@ -480,11 +529,39 @@ edzin_draw_lines(edzin_append_buf_t* buf) {
                 len = E.screen_props.cols;
             }
 
-            edzin_buf_append(buf, &E.line[file_line].render[E.scroll.x_offset], len);
+            char* c = &E.line[file_line].render[E.scroll.x_offset];
+            unsigned char* highlight = &E.line[file_line].highlight[E.scroll.x_offset];
+
+            for (int i = 0; i < len; i++) {
+#if 0 // @@@
+                if (iscntrl(c[i])) {
+                    char sym = (c[i] <= 26) ? '@' + c[i] : '?';
+
+                    edzin_buf_append(buf, ESCSEQ_REVERT_COLORS, 4);
+                    edzin_buf_append(buf, &sym, 1);
+                    edzin_buf_append(buf, "\x1b[m", 3);
+                } 
+#endif
+
+                if (highlight[i] == HL_NORMAL) {
+                    edzin_buf_append(buf, ESCSEQ_COLOR_DEF, 5);
+                    edzin_buf_append(buf, &c[i], 1);
+                } else {
+                    static int COLOR_BUFLEN = 16;
+                    char color_buf[COLOR_BUFLEN];
+                    int color = edzin_syntax_to_color(highlight[i]);
+                    int colorlen = snprintf(color_buf, COLOR_BUFLEN, ESCSEQ_COLOR, color);
+
+                    edzin_buf_append(buf, color_buf, colorlen);
+                    edzin_buf_append(buf, &c[i], 1);
+                }
+            }
+
+            edzin_buf_append(buf, ESCSEQ_COLOR_DEF, 5);
         }
 
-        edzin_buf_append(buf, "\x1b[K", 3);  // clear the current line before draw
-        edzin_buf_append(buf, "\r\n", 2);
+        edzin_buf_append(buf, ESCSEQ_CLEAR_LINE, 3);
+        edzin_buf_append(buf, ESCSEQ_BREAK_LINE, 2);
     }
 }
 
@@ -545,6 +622,15 @@ edzin_find() {
 
 void
 edzin_find_callback(char* query, int c) {
+    static int prev_highlight_line;
+    static char* prev_highlight = NULL;
+
+    if (prev_highlight) {
+        memcpy(E.line[prev_highlight_line].highlight, prev_highlight, E.line[prev_highlight_line].rsize);
+        free(prev_highlight);
+        prev_highlight = NULL;
+    }
+
     if (c == ESCAPE) {
         return;
     }
@@ -557,6 +643,10 @@ edzin_find_callback(char* query, int c) {
             E.cursor.y = i;
             E.cursor.x = edzin_transform_rx_to_x(line, match - line->render);
             E.scroll.y_offset = E.nlines;
+            prev_highlight_line = i;
+            prev_highlight = malloc(line->rsize);
+            memcpy(prev_highlight, line->highlight, line->rsize);
+            memset(&line->highlight[match - line->render], HL_MATCH, strlen(query));
             break;
         }
     }
@@ -566,14 +656,16 @@ void
 edzin_free_line(edzin_line_t* line) {
     free(line->render);
     free(line->chars);
+    free(line->highlight);
 }
 
 void
 edzin_init() {
     E.nlines = 0;
-    E.line = NULL;
     E.nfiles = 0;
+    E.line = NULL;
     E.files = NULL;
+    E.syntax = NULL;
     E.cursor = (edzin_cursor_t) {
         .x = 0,
         .y = 0,
@@ -614,7 +706,7 @@ edzin_line_append_str(edzin_line_t* line, char* s, size_t len) {
     line->chars = realloc(line->chars, line->size + len + 1);
     memcpy(&line->chars[line->size], s, len);
     line->size += len;
-    line->chars[line->size] = '\0';
+    line->chars[line->size] = ASCII_NULL;
     edzin_update_line(line);
 
     if (E.files != NULL) {
@@ -693,6 +785,8 @@ edzin_open(char* filename) {
     E.files = calloc(1, sizeof(edzin_file_t));
     *E.files = file;
 
+    edzin_select_syntax_highlight();
+
     FILE* f = fopen(filename, "r");
 
     if (!f) {
@@ -728,8 +822,8 @@ edzin_process_keypress() {
             /* edzin_set_status_msg("WARN: file has unsaved changes"); */
             /* return; */
             /* } */
-            write(STDOUT_FILENO, "\x1b[2J", 4);
-            write(STDOUT_FILENO, "\x1b[H", 3);
+            write(STDOUT_FILENO, ESCSEQ_CLEAR_SCREEN, 4);
+            write(STDOUT_FILENO, ESCSEQ_RESET_CURSOR, 3);
             exit(EXIT_SUCCESS);
             break;
         case CTRL_KEY('s'):
@@ -771,7 +865,7 @@ edzin_process_keypress() {
             edzin_mv_cursor(c);
             break;
         case CTRL_KEY('l'):
-        case '\x1b':
+        case ESCAPE:
             break;
         default:
             edzin_insert_char(c);
@@ -785,8 +879,8 @@ edzin_refresh_screen(bool block_cursor) {
 
     edzin_append_buf_t buf = APPEND_BUF_INIT;
 
-    edzin_buf_append(&buf, "\x1b[?25l", 6);  // hide cursor before rendering
-    edzin_buf_append(&buf, "\x1b[H", 3);  // vt100 escape sequence to go to line 1, col 1
+    edzin_buf_append(&buf, ESCSEQ_HIDE_CURSOR, 6);
+    edzin_buf_append(&buf, ESCSEQ_RESET_CURSOR, 3);
     edzin_draw_lines(&buf);
     edzin_draw_statusbar(&E, &buf);
     edzin_draw_msgbar(&E, &buf);
@@ -804,20 +898,10 @@ edzin_refresh_screen(bool block_cursor) {
 
     init_buf = edzin_render_cursor_on_pos(line, col);
     edzin_buf_append(&buf, init_buf, strlen(init_buf));
-    edzin_buf_append(&buf, "\x1b[?25h", 6);  // show cursor after rendering
+    edzin_buf_append(&buf, ESCSEQ_SHOW_CURSOR, 6);
     write(STDOUT_FILENO, buf.buf, buf.len);
     free(init_buf);
     edzin_buf_free(&buf);
-}
-
-char*
-edzin_render_cursor_on_pos(int line, int col) {
-    const int BUF_SIZE = 32;
-    char* init_buf = malloc(sizeof(char) * BUF_SIZE);
-
-    snprintf(init_buf, BUF_SIZE, "\x1b[%d;%dH", line, col);
-
-    return init_buf;
 }
 
 void
@@ -831,6 +915,8 @@ edzin_save() {
 
             return;
         }
+
+        edzin_select_syntax_highlight();
     }
 
     int len;
@@ -873,6 +959,36 @@ edzin_scroll() {
 }
 
 void
+edzin_select_syntax_highlight() {
+    E.syntax = NULL;
+
+    if (E.files == NULL) {
+        return;
+    }
+
+    char* ext = strrchr(E.files[0].filename, '.');
+
+    for (unsigned int i = 0; i < HLDB_ENTRIES; i++) {
+        edzin_syntax_t* s = &HLDB[i];
+
+        for (unsigned int j = 0; s->filematch[j]; j++) {
+            int is_ext = (s->filematch[j][0] == '.');
+
+            if ((is_ext && ext && !strcmp(ext, s->filematch[j]))
+                || (!is_ext && strstr(E.files[0].filename, s->filematch[j]))) {
+                E.syntax = s;
+
+                for (int line = 0; line < E.nlines; line++) {
+                    edzin_update_syntax(&E.line[line]);
+                }
+
+                return;
+            }
+        }
+    }
+}
+
+void
 edzin_set_status_msg(const char* fmt, ...) {
     va_list ap;
 
@@ -909,6 +1025,130 @@ edzin_update_line(edzin_line_t* line) {
         }
     }
 
-    line->render[idx] = 0x00;
+    line->render[idx] = ASCII_NULL;
     line->rsize = idx;
+    edzin_update_syntax(line);
+}
+
+void
+edzin_update_syntax(edzin_line_t* line) {
+    line->highlight = realloc(line->highlight, line->rsize);
+    memset(line->highlight, HL_NORMAL, line->rsize);
+
+    if (E.syntax == NULL) {
+        return;
+    }
+
+    char** keywords = E.syntax->keywords;
+    char* slc = E.syntax->grammar_symbols.single_line_comment;
+    char* mcb = E.syntax->grammar_symbols.multiline_comment_begin;
+    char* mce = E.syntax->grammar_symbols.multiline_comment_end;
+    int slclen = slc ? strlen(slc) : 0;
+    int mcblen = mcb ? strlen(mcb) : 0;
+    int mcelen = mce ? strlen(mce) : 0;
+    int prev_sep = true;  // prev is separator
+    int in_string = false;
+    int in_comment = (line->idx > 0 && E.line[line->idx - 1].in_comment);
+
+    for (int i = 0; i < line->rsize; i++) {
+        char c = line->render[i];
+        unsigned char prev_highlight = (i > 0) ? line->highlight[i - 1] : HL_NORMAL;
+
+        // single line comment
+        if (slclen && !in_string && !in_comment) {
+            if (!strncmp(&line->render[i], slc, slclen)) {
+                memset(&line->highlight[i], HL_COMMENT, line->rsize - i);
+                break;
+            }
+        }
+
+        // multiline comment
+        if (mcblen && mcelen && !in_string) {
+            if (!strncmp(&line->render[i], mcb, mcblen)) {
+                memset(&line->highlight[i], HL_MLCOMMENT, mcblen);
+                i++;
+                in_comment = true;
+                continue;
+            } else if (in_comment) {
+                line->highlight[i] = HL_COMMENT;
+
+                if (!strncmp(&line->render[i], mce, mcelen)) {
+                    memset(&line->highlight[i], HL_MLCOMMENT, mcelen);
+                    i++;
+                    in_comment = false;
+                    prev_sep = true;
+                    continue;
+                } else {
+                    continue;
+                }
+            }
+        }
+
+        if (E.syntax->flags & HL_HIGHLIGHT_STRINGS) {
+            if (in_string) {
+                line->highlight[i] = HL_STRING;
+
+                // escaped strings with (") char inside
+                if (c == '\\' && i + 1 < line->rsize) {
+                    line->highlight[i + 1] = HL_STRING;
+                    i++;
+                    continue;
+                }
+
+                if (c == in_string) {
+                    in_string = false;
+                    prev_sep = true;
+                    continue;
+                }
+            } else {
+                if (c == '"') {
+                    in_string = c;
+                    line->highlight[i] = HL_STRING;
+                    continue;
+                }
+            }
+        }
+
+        if (E.syntax->flags & HL_HIGHLIGHT_NUMBERS) {
+            if ((isdigit(c) && !in_string && (prev_sep || prev_highlight == HL_NUMBER))
+                || (c == '.' && prev_highlight == HL_NUMBER)) {
+                line->highlight[i] = HL_NUMBER;
+                prev_sep = false;
+                continue;
+            }
+        }
+
+        if (prev_sep) {
+            int j;
+
+            for (j = 0; keywords[j]; j++) {
+                int kwlen = strlen(keywords[j]);
+                int is_ktype = keywords[j][kwlen - 1] == '|';
+
+                if (is_ktype) {
+                    kwlen--;
+                }
+
+                if (!strncmp(&line->render[i], keywords[j], kwlen) && is_separator(line->render[i + kwlen])) {
+                    int t = is_ktype ? HL_KEYTYPE : HL_KEYWORD;
+
+                    memset(&line->highlight[i], t, kwlen);
+                }
+            }
+
+            if (keywords[j] != NULL) {
+                prev_sep = false;
+                continue;
+            }
+        }
+
+        prev_sep = is_separator(c);
+    }
+
+    int changed = line->in_comment != in_comment;
+    line->in_comment = in_comment;
+
+    if (changed && line->idx + 1 < E.nlines) {
+        edzin_update_syntax(&E.line[line->idx + 1]);
+    }
 }

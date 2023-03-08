@@ -20,7 +20,9 @@ handle_arrow_keys(char key) {
 }
 #else
 int
-handle_arrow_keys(__attribute__((unused)) char key) {
+handle_arrow_keys(char key) {
+    UNUSED(key);
+
     return ESCAPE;
 }
 #endif  // UO_ARROW_KEYS

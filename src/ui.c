@@ -1,10 +1,11 @@
 #include "edzin/ui.h"
+#include "edzin/escseq.h"
 #include <string.h>
 #include <unistd.h>
 
 void
 edzin_draw_statusbar(edzin_config_t* E, edzin_append_buf_t* buf) {
-    edzin_buf_append(buf, "\x1b[7m", 4);  // paint the statusbar with white color
+    edzin_buf_append(buf, ESCSEQ_REVERT_COLORS, 4);
 
     char* f = NULL;
 
@@ -19,18 +20,19 @@ edzin_draw_statusbar(edzin_config_t* E, edzin_append_buf_t* buf) {
     }
 
     char status[80], rstatus[80];
-    char* rstate;
-
-    if (E->files != NULL) {
-        rstate = edzin_file_state_to_str(E->files[0].state);
-    } else {
-        rstate = "new";
-    }
+    char* rfiletype = (E->syntax) ? E->syntax->filetype : "unk";
+    char* rstate = (E->files != NULL) ? edzin_file_state_to_str(E->files[0].state) : "new";
 
     int len = snprintf(status, sizeof(status), "%.20s [%s]", f, rstate);
     int file_percent = (E->cursor.y * 100) / (E->nlines > 0 ? E->nlines : 1);
     int rfile_percent = file_percent > 100 ? 100 : file_percent;
-    int rlen = snprintf(rstatus, sizeof(rstatus), "%d:%d\x20%d%%", E->cursor.y + 1, E->cursor.x + 1, rfile_percent);
+    int rlen = snprintf(rstatus,
+                        sizeof(rstatus),
+                        "[%s] %d:%d\x20%d%%",
+                        rfiletype,
+                        E->cursor.y + 1,
+                        E->cursor.x + 1,
+                        rfile_percent);
 
     if (len > E->screen_props.cols) {
         len = E->screen_props.cols;
@@ -49,12 +51,12 @@ edzin_draw_statusbar(edzin_config_t* E, edzin_append_buf_t* buf) {
     }
 
     edzin_buf_append(buf, "\x1b[m", 3);
-    edzin_buf_append(buf, "\r\n", 2);
+    edzin_buf_append(buf, ESCSEQ_BREAK_LINE, 2);
 }
 
 void
 edzin_draw_msgbar(edzin_config_t* E, edzin_append_buf_t* buf) {
-    edzin_buf_append(buf, "\x1b[K", 3);
+    edzin_buf_append(buf, ESCSEQ_CLEAR_LINE, 3);
 
     int msglen = strlen(E->status.msg);
 
@@ -68,7 +70,7 @@ edzin_draw_msgbar(edzin_config_t* E, edzin_append_buf_t* buf) {
 }
 
 char*
-edzin_file_state_to_str(enum edzin_file_state s) {
+edzin_file_state_to_str(enum edzin_file_state_e s) {
     switch (s) {
         case UNMODIFIED:
             return "-";
