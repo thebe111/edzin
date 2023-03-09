@@ -6,11 +6,11 @@ A vim like editor for educational purposes (based on a tutorial)
 
 ```
 # with user options
-$ make -B uobuild
+$ make uobuild
 $ ./build/edzin
 
 # without user options 
-$ make -B build
+$ make build
 $ ./build/edzin
 ```
 
@@ -18,11 +18,11 @@ $ ./build/edzin
 
 ```
 # with user options
-$ make -B uotest 
+$ make uotest 
 $ ./build/_t
 
 # without user options
-$ make -B test
+$ make test
 $ ./build/_t
 ```
 
@@ -37,8 +37,8 @@ $ ./build/_t
 
 ### Memory Leaks
 
-To prevent memory leaks was used a tool called [valgrind](https://valgrind.org/docs/manual/quick-start.html)
+To prevent memory leaks was used [valgrind](https://valgrind.org/docs/manual/quick-start.html)
 
 ```
-$ make -B build && valgrind --leak-check=full --show-leak-kinds=all -s ./build/edzin src/main.c
+$ make build && valgrind --leak-check=full --show-leak-kinds=all -s ./build/edzin src/main.c
 ```

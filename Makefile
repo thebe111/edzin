@@ -1,6 +1,6 @@
 BIN = build/edzin
 CFLAGS =  -Wall -Wextra -Werror -pedantic -std=c99
-TARGETS = src/main.c src/handlers.c src/ui.c src/lexer.c src/highlight.c
+TARGETS = src/main.c src/handlers.c src/ui.c src/lexer.c src/highlight.c src/smartbuf.c src/buffer.c src/window.c
 OPTIONS = -DUO_ENABLE_ARROW_KEYS \
 		  -DUO_CONTINUE_SCROLL_ON_LEFT \
 		  -DUO_CONTINUE_SCROLL_ON_RIGHT \

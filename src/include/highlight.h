@@ -6,6 +6,27 @@
 #define HL_HIGHLIGHT_NUMBERS (1 << 0)
 #define HL_HIGHLIGHT_STRINGS (1 << 1)
 
+typedef enum {
+    HL_COMMENT,
+    HL_KEYTYPE,
+    HL_KEYWORD,
+    HL_MATCH,
+    HL_MLCOMMENT,
+    HL_NORMAL,
+    HL_NUMBER,
+    HL_STRING,
+} edzin_highlight_types_t;
+
+typedef enum {
+    HL_RED = 31,
+    HL_GREEN = 32,
+    HL_YELLOW = 33,
+    HL_BLUE = 34,
+    HL_MAGENTA = 35,
+    HL_CYAN = 36,
+    HL_WHITE = 37,
+} edzin_highlight_colors_t;
+
 struct highlight_grammar {
     char* single_line_comment;
     char* multiline_comment_begin;

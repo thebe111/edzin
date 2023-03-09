@@ -1,7 +1,6 @@
 #ifndef EDZIN_ESCSEQ_H
 #define EDZIN_ESCSEQ_H
 
-#define ESCSEQ_BREAK_LINE "\r\n"
 #define ESCSEQ_CLEAR_LINE "\x1b[K"
 #define ESCSEQ_CLEAR_SCREEN "\x1b[2J"
 #define ESCSEQ_COLOR "\x1b[%dm"
