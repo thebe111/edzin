@@ -26,7 +26,7 @@ edzin_draw_statusbar(edzin_config_t* E, edzin_smartbuf_t* buf) {
     char* rfiletype = (E->win->buf->syntax) ? E->win->buf->syntax->filetype : "unk";
     char* rstate = (E->win->buf->fname != NULL) ? edzin_file_state_to_str(E->win->buf->state) : "new";
 
-    int len = snprintf(status, sizeof(status), "%.20s [%s]", f, rstate);
+    int len = snprintf(status, sizeof(status), "== %s == [%s] %.20s", edzin_mode_to_str(E->mode), rstate, f);
     int file_percent = (E->win->cursor.y * 100) / (E->win->buf->nlines > 0 ? E->win->buf->nlines : 1);
     int rfile_percent = file_percent > 100 ? 100 : file_percent;
     int rlen = snprintf(rstatus,
@@ -82,4 +82,16 @@ edzin_file_state_to_str(edzin_buf_state_t s) {
         default:
             return "?";
     }
+}
+
+const char*
+edzin_mode_to_str(edzin_mode_t mode) {
+    static const char* modes[] = {
+        [NORMAL] = "NORMAL",
+        [INSERT] = "INSERT",
+        [COMMAND] = "COMMAND",
+        [VISUAL] = "VISUAL",
+    };
+
+    return modes[mode];
 }

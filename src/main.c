@@ -48,7 +48,7 @@ main(int argc, char** argv) {
 
     while (true) {
         edzin_refresh_screen(false);
-        edzin_process_keypress();
+        edzin_process_keypress(E.mode);
     }
 
     return EXIT_SUCCESS;
@@ -62,7 +62,7 @@ edzin_prompt(char* prompt, void (*cb)(char* query, int ch)) {
     size_t buflen = 0;
     bool block_cursor = true;
 
-    buf[0] = ASCII_HEX_NULL;
+    buf[0] = ASCII_CHAR_NULL;
 
     while (true) {
         edzin_set_status_msg(prompt, buf);
@@ -73,7 +73,7 @@ edzin_prompt(char* prompt, void (*cb)(char* query, int ch)) {
 
         if (ch == DELETE_KEY || ch == CTRL_KEY('h') || ch == BACKSPACE) {
             if (buflen != 0) {
-                buf[--buflen] = ASCII_HEX_NULL;
+                buf[--buflen] = ASCII_CHAR_NULL;
             }
         } else if (ch == ASCII_CHAR_ESCAPE) {
             block_cursor = false;
@@ -86,7 +86,7 @@ edzin_prompt(char* prompt, void (*cb)(char* query, int ch)) {
             free(buf);
 
             return NULL;
-        } else if (ch == '\r') {
+        } else if (ch == ASCII_CHAR_CARRIAGE_RET) {
             block_cursor = false;
 
             if (buflen != 0) {
@@ -105,7 +105,7 @@ edzin_prompt(char* prompt, void (*cb)(char* query, int ch)) {
             }
 
             buf[buflen++] = ch;
-            buf[buflen] = ASCII_HEX_NULL;
+            buf[buflen] = ASCII_CHAR_NULL;
         }
 
         if (cb) {
@@ -228,21 +228,83 @@ edzin_syntax_to_color(int highlight) {
 
 void
 edzin_clean_up() {
+    edzin_clean_up_window(E.win);
+
     if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &E.TERM_MODE) == FAILURE) {
         edzin_die("tcsetattr");
     }
+}
 
-    for (int i = 0; i < E.win->buf->nlines; i++) {
-        free(E.win->buf->line[i].chars);
-        free(E.win->buf->line[i].render);
+void
+edzin_cmode_process_keypress(int ch) {
+    UNUSED(ch);
+}
+
+void
+edzin_common_process_keypress(int ch) {
+    switch (ch) {
+        case ASCII_CHAR_CARRIAGE_RET:
+            edzin_insert_new_line();
+            break;
+        case CTRL_KEY('q'):
+            /* if (E.files[0].state == MODIFIED) { */
+            /* edzin_set_status_msg("WARN: file has unsaved changes"); */
+            /* return; */
+            /* } */
+            write(STDOUT_FILENO, ESCSEQ_CLEAR_SCREEN, 4);
+            write(STDOUT_FILENO, ESCSEQ_RESET_CURSOR, 3);
+            exit(EXIT_SUCCESS);
+            break;
+        case CTRL_KEY('s'):
+            edzin_save();
+            break;
+        case CTRL_KEY('f'):
+            edzin_find();
+            break;
+        case 'g':
+            handle_goto(&E);
+            break;
+        case 'G':
+            E.win->cursor.y = E.win->buf->nlines;
+            break;
+        case HOME_KEY:
+            E.win->cursor.x = 0;
+            break;
+        case END_KEY:
+        case '$': {
+            if (E.win->cursor.y < E.win->buf->nlines) {
+                E.win->cursor.x = E.win->buf->line[E.win->cursor.y].size;
+            }
+        } break;
+        case BACKSPACE:
+            edzin_backspace_char();
+            break;
+        case CTRL_KEY('h'):
+        case DELETE_KEY:
+            edzin_delete_char();
+            break;
+        case PAGE_UP:
+        case PAGE_DOWN:
+            handle_page_down(&E, ch);
+            break;
+        case 'h':
+        case ARROW_LEFT:
+        case 'j':
+        case ARROW_DOWN:
+        case 'k':
+        case ARROW_UP:
+        case 'l':
+        case ARROW_RIGHT:
+            edzin_mv_cursor(ch);
+            break;
+        case CTRL_KEY('l'):
+        case ASCII_CHAR_ESCAPE:
+            E.mode = NORMAL;
+            break;
+        default:
+            edzin_insert_char(ch);
+            break;
     }
-
-    // FIXME
-    /* for (int i = 0; i < E.nfiles; i++) { */
-    /* free(E.win->buf->fname); */
-    /* } */
-
-    free(E.win->buf);
 }
 
 void
@@ -337,7 +399,13 @@ edzin_enable_raw_mode() {
         edzin_die("tcgetattr");
     }
 
-    atexit(edzin_clean_up);
+    int err = atexit(edzin_clean_up);
+
+    if (err) {
+        fprintf(stderr, "ERR: cannot set exit function\n");
+        exit(EXIT_FAILURE);
+    }
+
     struct termios term_raw_mode = E.TERM_MODE;
     term_raw_mode.c_cflag |= (/*set chars size (CS) to 8 bits per byte=*/CS8);
     term_raw_mode.c_oflag = ~(/*turn off output processing (\n|\r\n)=*/OPOST);
@@ -421,20 +489,31 @@ edzin_find_callback(char* query, int ch) {
 }
 
 void
+edzin_imode_process_keypress(int ch) {
+    switch (ch) {
+        case 'h':  // override
+        case 'j':  // override
+        case 'k':  // override
+        case 'l':  // override
+            edzin_insert_char(ch);
+            break;
+        case '$':  // override
+            edzin_insert_char(ch);
+            break;
+        default:
+            edzin_common_process_keypress(ch);
+            break;
+    }
+}
+
+void
 edzin_init() {
+    E.mode = NORMAL;
     E.win = new_window();
     E.win->buf = new_buffer(NULL);
-    E.win->cursor = (edzin_cursor_t) {
-        .x = 0,
-        .y = 0,
-        .rx = 0,
-    };
-    E.win->scroll = (edzin_scroll_t) {
-        .x_offset = 0,
-        .y_offset = 0,
-    };
+    E.win->buf->init = true;
     E.status = (edzin_status_t) {
-        .msg = {ASCII_HEX_NULL},
+        .msg = {ASCII_CHAR_NULL},
         .msg_time = 0,
     };
 
@@ -446,9 +525,35 @@ edzin_init() {
 }
 
 void
+edzin_nmode_process_keypress(int ch) {
+    switch (ch) {
+        case ':':
+            E.mode = COMMAND;
+            break;
+        case 'i':
+            E.mode = INSERT;
+            break;
+        case 'v':
+            E.mode = VISUAL;
+            break;
+        case ASCII_CHAR_CARRIAGE_RET:
+            edzin_mv_cursor('j');
+            break;
+        default:
+            edzin_common_process_keypress(ch);
+            break;
+    }
+}
+
+void
 edzin_open(char* fname) {
     E.win->nbuf += 1;
-    E.win->buf = new_buffer(fname);
+
+    if (E.win->buf->init) {
+        E.win->buf->fname = strdup(fname);
+    } else {
+        E.win->buf = new_buffer(fname);
+    }
 
     edzin_select_syntax_highlight();
 
@@ -463,7 +568,8 @@ edzin_open(char* fname) {
     size_t line_capacity = 0;
 
     while ((linelen = getline(&line, &line_capacity, f)) != FAILURE) {
-        while (linelen > 0 && (line[linelen - 1] == '\n' || line[linelen - 1] == '\r')) {
+        while (linelen > 0
+               && (line[linelen - 1] == ASCII_CHAR_NEW_LINE || line[linelen - 1] == ASCII_CHAR_CARRIAGE_RET)) {
             linelen--;
         }
 
@@ -475,65 +581,21 @@ edzin_open(char* fname) {
 }
 
 void
-edzin_process_keypress() {
-    int c = edzin_read_key();
+edzin_process_keypress(edzin_mode_t mode) {
+    int ch = edzin_read_key();
 
-    switch (c) {
-        case '\r':
-            edzin_insert_new_line();
+    switch (mode) {
+        case COMMAND:
+            edzin_cmode_process_keypress(ch);
             break;
-        case CTRL_KEY('q'):
-            /* if (E.files[0].state == MODIFIED) { */
-            /* edzin_set_status_msg("WARN: file has unsaved changes"); */
-            /* return; */
-            /* } */
-            write(STDOUT_FILENO, ESCSEQ_CLEAR_SCREEN, 4);
-            write(STDOUT_FILENO, ESCSEQ_RESET_CURSOR, 3);
-            exit(EXIT_SUCCESS);
+        case VISUAL:
+            edzin_vmode_process_keypress(ch);
             break;
-        case CTRL_KEY('s'):
-            edzin_save();
-            break;
-        case CTRL_KEY('f'):
-            edzin_find();
-            break;
-        case 'G':
-            E.win->cursor.y = E.win->buf->nlines;
-            break;
-        case HOME_KEY:
-            E.win->cursor.x = 0;
-            break;
-        case END_KEY: {
-            if (E.win->cursor.y < E.win->buf->nlines) {
-                E.win->cursor.x = E.win->buf->line[E.win->cursor.y].size;
-            }
-        } break;
-        case BACKSPACE:
-            edzin_backspace_char();
-            break;
-        case CTRL_KEY('h'):
-        case DELETE_KEY:
-            edzin_delete_char();
-            break;
-        case PAGE_UP:
-        case PAGE_DOWN:
-            handle_page_down(&E, c);
-            break;
-        case 'h':
-        case ARROW_LEFT:
-        case 'j':
-        case ARROW_DOWN:
-        case 'k':
-        case ARROW_UP:
-        case 'l':
-        case ARROW_RIGHT:
-            edzin_mv_cursor(c);
-            break;
-        case CTRL_KEY('l'):
-        case ASCII_CHAR_ESCAPE:
+        case INSERT:
+            edzin_imode_process_keypress(ch);
             break;
         default:
-            edzin_insert_char(c);
+            edzin_nmode_process_keypress(ch);
             break;
     }
 }
@@ -631,4 +693,16 @@ edzin_set_status_msg(const char* fmt, ...) {
     vsnprintf(E.status.msg, sizeof(E.status.msg), fmt, ap);
     va_end(ap);
     E.status.msg_time = time(NULL);
+}
+
+void
+edzin_vmode_process_keypress(int ch) {
+    switch (ch) {
+        case ASCII_CHAR_CARRIAGE_RET:
+            edzin_mv_cursor('j');
+            break;
+        default:
+            edzin_common_process_keypress(ch);
+            break;
+    }
 }

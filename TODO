@@ -1,6 +1,6 @@
-[_] modal editing style
+[~] modal editing style
 [_] impl ncurses
-[_] goto function
+[~] goto function
 [_] multiple windows/buffers
 [_] file manager
 [_] copy/paste

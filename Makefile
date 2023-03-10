@@ -8,7 +8,7 @@ OPTIONS = -DUO_ENABLE_ARROW_KEYS \
 
 .PHONY: build
 build: 
-	$(CC) $(TARGETS) -o $(BIN) $(CFLAGS) -g
+	$(CC) $(TARGETS) -o $(BIN) $(CFLAGS) -g -O0
 
 .PHONY: uobuild
 uobuild: 

@@ -2,6 +2,8 @@
 #include "include/ascii.h"
 #include "include/keyboard.h"
 #include "include/main.h"
+#include <stdlib.h>
+#include <string.h>
 
 #ifdef UO_ENABLE_ARROW_KEYS
 int
@@ -28,6 +30,26 @@ handle_arrow_keys(char ch) {
     return ASCII_CHAR_ESCAPE;
 }
 #endif  // UO_ARROW_KEYS
+
+void
+handle_goto(edzin_config_t* E) {
+    int ch;
+    char* num = "";
+
+    while ((ch = edzin_read_key())) {
+        if (ch == ASCII_CHAR_CARRIAGE_RET) {
+            E->win->cursor.x = atoi(num);
+            break;
+        } else if (ch >= '0' && ch <= '9') {
+            strcat(num, (const char*) &ch);
+        } else if (ch == 'g') {
+            E->win->cursor.y = 0;
+            break;
+        }
+
+        break;
+    }
+}
 
 void
 handle_mv_cursor_down(edzin_config_t* E) {

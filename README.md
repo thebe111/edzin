@@ -40,5 +40,5 @@ $ ./build/_t
 To prevent memory leaks was used [valgrind](https://valgrind.org/docs/manual/quick-start.html)
 
 ```
-$ make build && valgrind --leak-check=full --show-leak-kinds=all -s ./build/edzin src/main.c
+$ make build && valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes -s ./build/edzin src/main.c
 ```

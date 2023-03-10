@@ -35,6 +35,7 @@ typedef struct {
     edzin_scr_props_t scr_props;
     edzin_status_t status;
     edzin_window_t* win;
+    edzin_mode_t mode;
 } edzin_config_t;
 
 extern edzin_config_t E;
@@ -44,16 +45,21 @@ int edzin_get_scrsize();
 int edzin_read_key();
 int edzin_syntax_to_color(int highlight);
 void edzin_clean_up();
+void edzin_cmode_process_keypress(int ch);
+void edzin_common_process_keypress(int ch);
 void edzin_die(const char* msg);
 void edzin_enable_raw_mode();
 void edzin_find();
 void edzin_find_callback(char* query, int ch);
+void edzin_imode_process_keypress(int ch);
 void edzin_init();
+void edzin_nmode_process_keypress(int ch);
 void edzin_open(char* fname);
-void edzin_process_keypress();
+void edzin_process_keypress(edzin_mode_t mode);
 void edzin_refresh_screen(bool block_cursor);
 void edzin_save();
 void edzin_scroll();
 void edzin_set_status_msg(const char* fmt, ...);
+void edzin_vmode_process_keypress(int ch);
 
 #endif  // EDZIN_MAIN_H

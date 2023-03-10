@@ -22,9 +22,9 @@ new_window() {
     edzin_window_t* win = malloc(sizeof(edzin_window_t));
 
     *win = (edzin_window_t) {
+        .nbuf = 0,
         .buf = NULL,
         .cursor = (edzin_cursor_t) {.x = 0, .y = 0, .rx = 0},
-        .nbuf = 0,
         .scroll = (edzin_scroll_t) {.x_offset = 0, .y_offset = 0},
     };
 
@@ -63,6 +63,12 @@ edzin_get_cursor_pos(int* lines, int* cols) {
     }
 
     return EXIT_SUCCESS;
+}
+
+void
+edzin_clean_up_window(edzin_window_t* win) {
+    edzin_clean_up_buffer(win->buf);
+    free(win);
 }
 
 void

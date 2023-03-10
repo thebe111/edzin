@@ -10,5 +10,8 @@
 
 // char representation of some ascii table symbols
 #define ASCII_CHAR_ESCAPE '\x1b'
+#define ASCII_CHAR_CARRIAGE_RET '\r'
+#define ASCII_CHAR_NULL '\0'
+#define ASCII_CHAR_NEW_LINE '\n'
 
 #endif  // EDZIN_ASCII_H

@@ -5,5 +5,5 @@
 
 int
 is_separator(int ch) {
-    return isspace(ch) || ch == ASCII_HEX_NULL || strchr(",.()+-/*=~%<>[];", ch) != NULL;
+    return isspace(ch) || ch == ASCII_CHAR_NULL || strchr(",.()+-/*=~%<>[];", ch) != NULL;
 }

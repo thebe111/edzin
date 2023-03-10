@@ -33,9 +33,11 @@ typedef struct edzin_buffer edzin_buffer_t;
 
 char* edzin_lines_to_str(int* buflen);
 edzin_buffer_t* new_buffer(char* fname);
+edzin_line_t new_line(int idx, size_t size);
 int edzin_transform_rx_to_x(edzin_line_t* line, int chars_rx);
 int edzin_transform_x_to_rx(edzin_line_t* line, int chars_x);
 void edzin_backspace_char();
+void edzin_clean_up_buffer();
 void edzin_delete_char();
 void edzin_delete_line(int at);
 void edzin_free_line(edzin_line_t* line);
@@ -45,8 +47,10 @@ void edzin_insert_new_line();
 void edzin_line_append_str(edzin_line_t* line, char* s, size_t len);
 void edzin_line_delete_char(edzin_line_t* line, int at);
 void edzin_line_insert_char(edzin_line_t* line, int at, int ch);
+void edzin_select_syntax_highlight();
 void edzin_update_line(edzin_line_t* line);
 void edzin_update_syntax(edzin_line_t* line);
-void edzin_select_syntax_highlight();
+void edzin_clean_up_line(edzin_line_t* line);
+void edzin_clean_up_syntax(edzin_syntax_t* syntax);
 
 #endif  // EDZIN_BUFFER_H

@@ -59,6 +59,19 @@ new_buffer(char* fname) {
     return buf;
 }
 
+edzin_line_t
+new_line(int idx, size_t size) {
+    return (edzin_line_t) {
+        .idx = idx,
+        .size = size,
+        .rsize = 0,
+        .chars = malloc(size + 1),
+        .render = NULL,
+        .highlight = NULL,
+        .in_comment = false,
+    };
+}
+
 int
 edzin_transform_rx_to_x(edzin_line_t* line, int chars_rx) {
     int x;
@@ -116,6 +129,19 @@ edzin_backspace_char() {
 }
 
 void
+edzin_clean_up_buffer(edzin_buffer_t* buf) {
+    if (buf->line != NULL) {
+        for (int i = 0; i < buf->nlines; i++) {
+            edzin_clean_up_line(&buf->line[i]);
+        }
+    }
+
+    free(buf->line);
+    free(buf->fname);
+    free(buf);
+}
+
+void
 edzin_delete_char() {
     if (E.win->cursor.y == E.win->buf->nlines) {
         return;
@@ -133,15 +159,14 @@ edzin_delete_char() {
         E.win->cursor.x--;
     }
 
-#ifdef UO_ENABLE_DELETE_LINE_JOIN
+    // FIXME
     if (E.win->cursor.y + 1 < E.win->buf->nlines) {
-        edzin_line_t* next_line = &E.line[E.win->cursor.y + 1];
+        edzin_line_t* next_line = &E.win->buf->line[E.win->cursor.y + 1];
 
         E.win->cursor.x = line->size + next_line->size;
         edzin_line_append_str(line, next_line->chars, next_line->size);
         edzin_delete_line(E.win->cursor.y + 1);
     }
-#endif
 }
 
 void
@@ -158,10 +183,7 @@ edzin_delete_line(int at) {
     }
 
     E.win->buf->nlines--;
-
-    if (E.win->buf->fname != NULL) {
-        E.win->buf->state = MODIFIED;
-    }
+    E.win->buf->state = MODIFIED;
 }
 
 void
@@ -179,10 +201,7 @@ edzin_insert_char(int ch) {
 
     edzin_line_insert_char(&E.win->buf->line[E.win->cursor.y], E.win->cursor.x, ch);
     E.win->cursor.x++;
-
-    if (E.win->buf->fname != NULL) {
-        E.win->buf->state = MODIFIED;
-    }
+    E.win->buf->state = MODIFIED;
 }
 
 void
@@ -191,22 +210,22 @@ edzin_insert_line(int at, char* s, size_t len) {
         return;
     }
 
-    E.win->buf->line = realloc(E.win->buf->line, sizeof(edzin_line_t) * (E.win->buf->nlines + 1));
-    memmove(&E.win->buf->line[at + 1], &E.win->buf->line[at], sizeof(edzin_line_t) * (E.win->buf->nlines - at));
+    if (E.win->buf->line == NULL) {
+        E.win->buf->line = malloc(sizeof(edzin_line_t));
+        *E.win->buf->line = new_line(at, len);
+    } else {
+        E.win->buf->line = realloc(E.win->buf->line, sizeof(edzin_line_t) * (E.win->buf->nlines + 1));
+        memmove(&E.win->buf->line[at + 1], &E.win->buf->line[at], sizeof(edzin_line_t) * (E.win->buf->nlines - at));
 
-    for (int i = at + 1; i <= E.win->buf->nlines; i++) {
-        E.win->buf->line[i].idx++;
+        for (int i = at + 1; i <= E.win->buf->nlines; i++) {
+            E.win->buf->line[i].idx++;
+        }
+
+        E.win->buf->line[at] = new_line(at, len);
     }
 
-    E.win->buf->line[at].idx = at;
-    E.win->buf->line[at].size = len;
-    E.win->buf->line[at].chars = malloc(len + 1);
     memcpy(E.win->buf->line[at].chars, s, len);
-    E.win->buf->line[at].chars[len] = ASCII_HEX_NULL;
-    E.win->buf->line[at].rsize = 0;
-    E.win->buf->line[at].render = NULL;
-    E.win->buf->line[at].highlight = NULL;
-    E.win->buf->line[at].in_comment = false;
+    E.win->buf->line[at].chars[len] = ASCII_CHAR_NULL;
     edzin_update_line(&E.win->buf->line[at]);
     E.win->buf->nlines++;
 }
@@ -221,7 +240,7 @@ edzin_insert_new_line() {
         edzin_insert_line(E.win->cursor.y + 1, &line->chars[E.win->cursor.x], line->size - E.win->cursor.x);
         line = &E.win->buf->line[E.win->cursor.y];
         line->size = E.win->cursor.x;
-        line->chars[line->size] = ASCII_HEX_NULL;
+        line->chars[line->size] = ASCII_CHAR_NULL;
         edzin_update_line(line);
     }
 
@@ -234,13 +253,9 @@ edzin_line_append_str(edzin_line_t* line, char* s, size_t len) {
     line->chars = realloc(line->chars, line->size + len + 1);
     memcpy(&line->chars[line->size], s, len);
     line->size += len;
-    line->chars[line->size] = ASCII_HEX_NULL;
+    line->chars[line->size] = ASCII_CHAR_NULL;
     edzin_update_line(line);
-
-    // FIXME: don't need more this validation
-    if (E.win->buf->fname != NULL) {
-        E.win->buf->state = MODIFIED;
-    }
+    E.win->buf->state = MODIFIED;
 }
 
 void
@@ -252,10 +267,7 @@ edzin_line_delete_char(edzin_line_t* line, int at) {
     memmove(&line->chars[at], &line->chars[at + 1], line->size - at);
     line->size--;
     edzin_update_line(line);
-
-    if (E.win->buf->fname != NULL) {
-        E.win->buf->state = MODIFIED;
-    }
+    E.win->buf->state = MODIFIED;
 }
 
 void
@@ -281,7 +293,6 @@ edzin_update_line(edzin_line_t* line) {
         }
     }
 
-    free(line->render);
     line->render = malloc(line->size + (ntabs * (TAB_STOP_SIZE - 1)) + 1);
 
     int idx = 0;
@@ -457,4 +468,19 @@ edzin_select_syntax_highlight() {
             }
         }
     }
+}
+
+void
+edzin_clean_up_line(edzin_line_t* line) {
+    free(line->chars);
+    free(line->render);
+    free(line->highlight);
+}
+
+void
+edzin_clean_up_syntax(edzin_syntax_t* syntax) {
+    free(syntax->keywords);
+    free(syntax->filetype);
+    free(syntax->filematch);
+    free(syntax);
 }
