@@ -61,11 +61,11 @@ handle_mv_cursor_down(edzin_config_t* E) {
 void
 handle_mv_cursor_left(edzin_config_t* E) {
 #ifdef UO_CONTINUE_SCROLL_ON_LEFT
-    if (E->cursor.x != 0) {
-        E->cursor.x--;
-    } else if (E->cursor.y > 0) {
-        E->cursor.y--;
-        E->cursor.x = E->line[E->cursor.y].size;
+    if (E->win->cursor.x != 0) {
+        E->win->cursor.x--;
+    } else if (E->win->cursor.y > 0) {
+        E->win->cursor.y--;
+        E->win->cursor.x = E->win->buf->line[E->win->cursor.y].size;
     }
 #else
     if (E->win->cursor.x > 0) {
@@ -77,11 +77,11 @@ handle_mv_cursor_left(edzin_config_t* E) {
 void
 handle_mv_cursor_right(edzin_config_t* E, edzin_line_t* line) {
 #ifdef UO_CONTINUE_SCROLL_ON_RIGHT
-    if (line && E->cursor.x < line->size) {
-        E->cursor.x++;
-    } else if (line && E->cursor.x == line->size) {
-        E->cursor.y++;
-        E->cursor.x = 0;
+    if (line && E->win->cursor.x < line->size) {
+        E->win->cursor.x++;
+    } else if (line && E->win->cursor.x == line->size) {
+        E->win->cursor.y++;
+        E->win->cursor.x = 0;
     }
 #else
     if (line && E->win->cursor.x < line->size) {

@@ -118,7 +118,7 @@ edzin_backspace_char() {
 
 #ifdef UO_ENABLE_DELETE_LINE_JOIN
     if (E.win->cursor.y > 0) {
-        edzin_line_t* prev_line = &E.line[E.win->cursor.y - 1];
+        edzin_line_t* prev_line = &E.win->buf->line[E.win->cursor.y - 1];
 
         E.win->cursor.x = prev_line->size + line->size;
         edzin_line_append_str(prev_line, line->chars, line->size);
